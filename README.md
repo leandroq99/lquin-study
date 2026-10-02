@@ -4,23 +4,23 @@ Repositório pessoal de estudo e registro sobre infraestrutura, automação e De
 
 ## 🏠 Homelab
 
-Todo o ambiente é provisionado localmente com **Vagrant + VirtualBox**, usando **Rocky Linux 9** em todas as VMs, numa rede privada `172.89.0.0/24`.
+Todo o ambiente é provisionado localmente com **Vagrant + VirtualBox**, usando **Rocky Linux 9** em todas as VMs, numa rede privada *host-only*.
 
-| VM | IP | vCPU / RAM | Função |
-|----|----|-----------|--------|
-| `master-1` | 172.89.0.11 | 2 / 4 GB | Control plane Kubernetes |
-| `worker-1` | 172.89.0.21 | 2 / 4 GB | Worker Kubernetes |
-| `worker-2` | 172.89.0.22 | 2 / 4 GB | Worker Kubernetes |
-| `zabbix-server` | 172.89.0.30 | 2 / 2 GB | Monitoramento (Zabbix + MySQL) |
-| `grafana` | 172.89.0.31 | 2 / 2 GB | Dashboards (Grafana) |
-| `ipa-ldap` | 172.89.0.40 | — | Identidade centralizada (OpenLDAP / FreeIPA) |
-| `dns-server` | 172.89.0.50 | 1 / 1 GB | DNS interno |
+| VM | vCPU / RAM | Função |
+|----|-----------|--------|
+| `master-1` | 2 / 4 GB | Control plane Kubernetes |
+| `worker-1` | 2 / 4 GB | Worker Kubernetes |
+| `worker-2` | 2 / 4 GB | Worker Kubernetes |
+| `zabbix-server` | 2 / 2 GB | Monitoramento (Zabbix + MySQL) |
+| `grafana` | 2 / 2 GB | Dashboards (Grafana) |
+| `ipa-ldap` | — | Identidade centralizada (OpenLDAP / FreeIPA) |
+| `dns-server` | 1 / 1 GB | DNS interno |
 
 ### Cluster Kubernetes
 
 - **Kubernetes v1.30** (kubeadm), runtime **containerd**, 1 control plane + 2 workers
 - **CNI:** Calico
-- **Load Balancer:** MetalLB (pool em `172.89.0.24x`)
+- **Load Balancer:** MetalLB
 - **Ingress:** ingress-nginx (exposto via MetalLB)
 - **Storage:** local-path-provisioner
 - **Autoscaling / métricas:** metrics-server e Vertical Pod Autoscaler (VPA)
