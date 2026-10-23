@@ -83,3 +83,13 @@ Os playbooks são pensados para rodar pelo **AWX** (o inventário vive lá, não
 ## Observações
 
 Repositório voltado para estudo pessoal e aprendizado contínuo — atualizado conforme novos tópicos e experimentos são adicionados ao lab.
+
+## ☸️ DevOps with Kubernetes — Exercícios
+
+Código em [`Kubernetes/`](Kubernetes). Cada link aponta para a release do exercício.
+
+### Chapter 2
+
+<!-- Ao terminar cada exercício, adicione uma linha como:
+- [1.1.](https://github.com/leandroq99/lquin-study/tree/1.1/Kubernetes/log_output)
+-->
