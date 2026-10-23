@@ -90,6 +90,8 @@ Código em [`Kubernetes/`](Kubernetes). Cada link aponta para a release do exerc
 
 ### Chapter 2
 
+- [1.1.](https://github.com/leandroq99/lquin-study/tree/1.1/Kubernetes/log_output)
+
 <!-- Ao terminar cada exercício, adicione uma linha como:
 - [1.1.](https://github.com/leandroq99/lquin-study/tree/1.1/Kubernetes/log_output)
 -->

@@ -1,12 +1,24 @@
 # log_output
 
-Descrição: _a preencher_.
+Gera uma string aleatória (UUID) ao iniciar, guarda em memória e imprime a cada 5 segundos com timestamp.
+
+```
+2026-10-23T15:10:00.123Z: 8523ecb1-c716-4cb6-a044-b9e83bb98e43
+```
 
 ## Como executar
 
+Localmente:
+
 ```bash
-docker build -t leandroq99/log-output:<versão> .
-docker push leandroq99/log-output:<versão>
-kubectl apply -f manifests/
-kubectl get pods
+python app.py
+```
+
+No Kubernetes:
+
+```bash
+docker build -t leandroq99/log-output:1.1 .
+docker push leandroq99/log-output:1.1
+kubectl apply -f manifests/deployment.yaml
+kubectl logs -f deployment/log-output
 ```
