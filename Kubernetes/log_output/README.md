@@ -17,8 +17,8 @@ python app.py
 No Kubernetes:
 
 ```bash
-docker build -t leandroq99/log-output:1.1 .
-docker push leandroq99/log-output:1.1
+docker build -t leandrocfg/log-output:1.1 .
+docker push leandrocfg/log-output:1.1
 kubectl apply -f manifests/deployment.yaml
 kubectl logs -f deployment/log-output
 ```

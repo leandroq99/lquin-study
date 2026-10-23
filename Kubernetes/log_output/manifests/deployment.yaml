@@ -14,4 +14,4 @@ spec:
     spec:
       containers:
         - name: log-output
-          image: leandroq99/log-output:1.1
+          image: leandrocfg/log-output:1.1
