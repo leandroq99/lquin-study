@@ -6,10 +6,9 @@ metadata:
 spec:
   ports:
   - name: todo-app
-    nodePort: 30080
-    port: 2000 
+    port: 2323 
     protocol: TCP
     targetPort: 5000
   selector:
     app: todo-app 
-  type: NodePort
+  type: ClusterIP 
