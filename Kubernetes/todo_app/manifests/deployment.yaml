@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: todo-app
-          image: leandrocfg/todo-app:1.2
+          image: leandrocfg/todo-app:1.5
           env:
             - name: PORT
               value: "5000"
