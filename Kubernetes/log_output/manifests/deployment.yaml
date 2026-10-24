@@ -12,6 +12,17 @@ spec:
       labels:
         app: log-output
     spec:
+      volumes:
+        - name: vol-reader
+          emptyDir: {}
       containers:
-        - name: log-output
-          image: leandrocfg/log-output:1.7
+        - name: log-reader
+          image: leandrocfg/log_reader:1.10 
+          volumeMounts:
+            - name: vol-reader
+              mountPath: /usr/src/app/files/
+        - name: log-write
+          image: leandrocfg/log_write:1.10
+          volumeMounts:
+            - name: vol-reader
+              mountPath: /usr/src/app/files/
