@@ -2,8 +2,26 @@ import os
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-counter = 0
+PONG_FILE = os.environ.get("PONG_FILE", "/usr/src/app/files/pongs.txt")
+
 lock = threading.Lock()
+
+
+def load_counter():
+    try:
+        with open(PONG_FILE) as f:
+            return int(f.read().strip() or 0)
+    except FileNotFoundError:
+        return 0
+
+
+def save_counter(value):
+    os.makedirs(os.path.dirname(PONG_FILE), exist_ok=True)
+    with open(PONG_FILE, "w") as f:
+        f.write(str(value))
+
+
+counter = load_counter()
 
 
 class PingPongHandler(BaseHTTPRequestHandler):
@@ -16,6 +34,7 @@ class PingPongHandler(BaseHTTPRequestHandler):
         with lock:
             body = f"pong {counter}".encode()
             counter += 1
+            save_counter(counter)
 
         self.send_response(200)
         self.send_header("Content-Type", "text/plain; charset=utf-8")

@@ -14,10 +14,11 @@ spec:
     spec:
       volumes:
         - name: vol-reader
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: lab-claim 
       containers:
         - name: log-reader
-          image: leandrocfg/log_reader:1.10 
+          image: leandrocfg/log_reader:1.11 
           volumeMounts:
             - name: vol-reader
               mountPath: /usr/src/app/files/

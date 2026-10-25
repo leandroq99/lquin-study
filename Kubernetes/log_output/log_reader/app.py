@@ -2,17 +2,29 @@ import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 LOG_FILE = os.environ.get("LOG_FILE", "/usr/src/app/files/log.txt")
+PONG_FILE = os.environ.get("PONG_FILE", "/usr/src/app/files/pongs.txt")
+
+
+def read_last_line(path):
+    try:
+        with open(path) as f:
+            lines = f.read().strip().splitlines()
+        return lines[-1] if lines else "no log yet"
+    except FileNotFoundError:
+        return "no log yet"
+
+
+def read_pongs(path):
+    try:
+        with open(path) as f:
+            return int(f.read().strip() or 0)
+    except FileNotFoundError:
+        return 0
 
 
 class StatusHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        try:
-            with open(LOG_FILE) as f:
-                content = f.read()
-        except FileNotFoundError:
-            content = "no log yet\n"
-
-        body = content.encode()
+        body = f"{read_last_line(LOG_FILE)}\nPing / Pongs: {read_pongs(PONG_FILE)}\n".encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
