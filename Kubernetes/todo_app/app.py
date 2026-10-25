@@ -15,12 +15,96 @@ PAGE = """<!doctype html>
 <html lang="pt-br">
 <head>
   <meta charset="utf-8">
-  <title>Todo app</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Todo App</title>
+  <style>
+    body {{
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: #333;
+      background: #fff;
+    }}
+    main {{
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 40px 16px;
+      text-align: center;
+    }}
+    h1 {{
+      font-size: 2.6rem;
+      margin: 0 0 24px;
+    }}
+    img {{
+      width: 100%;
+      max-width: 300px;
+      aspect-ratio: 1 / 1;
+      object-fit: cover;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }}
+    form {{
+      display: flex;
+      gap: 12px;
+      max-width: 640px;
+      margin: 48px auto 32px;
+    }}
+    input {{
+      flex: 1;
+      min-width: 0;
+      padding: 12px 14px;
+      font-size: 1rem;
+      border: 2px solid #4caf50;
+      border-radius: 4px;
+      outline: none;
+    }}
+    button {{
+      padding: 12px 28px;
+      font-size: 1rem;
+      color: #fff;
+      background: #4caf50;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }}
+    button:hover {{
+      background: #43a047;
+    }}
+    h2 {{
+      font-size: 1.8rem;
+      margin: 0 0 20px;
+    }}
+    ul {{
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      text-align: left;
+    }}
+    li {{
+      background: #f8f8f8;
+      border-left: 5px solid #4caf50;
+      border-radius: 4px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      padding: 18px 24px;
+      margin-bottom: 14px;
+      font-size: 1.1rem;
+    }}
+  </style>
 </head>
 <body>
-  <h1>Todo app</h1>
-  <img src="/image.jpg?v={version}" alt="Imagem aleatória" style="max-width: 600px;">
-  <p>Rodando no Kubernetes na porta {port}.</p>
+  <main>
+    <h1>Todo App</h1>
+    <img src="/image.jpg?v={version}" alt="Imagem aleatória">
+    <form onsubmit="return false;">
+      <input type="text" name="todo" maxlength="140" placeholder="Enter a new todo (max 140 characters)" required>
+      <button type="submit">Send</button>
+    </form>
+    <h2>Todos</h2>
+    <ul>
+      <li>Learn Kubernetes basics</li>
+      <li>Deploy application to cluster</li>
+      <li>Configure persistent volumes</li>
+    </ul>
+  </main>
 </body>
 </html>
 """
