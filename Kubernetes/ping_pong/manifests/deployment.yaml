@@ -12,13 +12,6 @@ spec:
       labels:
         app: ping-pong
     spec:
-      volumes:
-        - name: vol-reader
-          persistentVolumeClaim:
-            claimName: lab-claim
       containers:
         - name: ping-pong
-          image: leandrocfg/ping-pong:1.11 
-          volumeMounts:
-            - name: vol-reader
-              mountPath: /usr/src/app/files/
+          image: leandrocfg/ping-pong:2.1 

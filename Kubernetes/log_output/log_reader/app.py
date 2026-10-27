@@ -1,8 +1,9 @@
 import os
+import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 LOG_FILE = os.environ.get("LOG_FILE", "/usr/src/app/files/log.txt")
-PONG_FILE = os.environ.get("PONG_FILE", "/usr/src/app/files/pongs.txt")
+PINGPONG_URL = os.environ.get("PINGPONG_URL", "http://ping-pong-svc:2323/pings")
 
 
 def read_last_line(path):
@@ -14,17 +15,18 @@ def read_last_line(path):
         return "no log yet"
 
 
-def read_pongs(path):
+def fetch_pongs(url):
     try:
-        with open(path) as f:
-            return int(f.read().strip() or 0)
-    except FileNotFoundError:
-        return 0
+        with urllib.request.urlopen(url, timeout=3) as resp:
+            return resp.read().decode().strip()
+    except Exception as e:
+        print(f"Failed to fetch pongs from {url}: {e}", flush=True)
+        return "unavailable"
 
 
 class StatusHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        body = f"{read_last_line(LOG_FILE)}\nPing / Pongs: {read_pongs(PONG_FILE)}\n".encode()
+        body = f"{read_last_line(LOG_FILE)}\nPing / Pongs: {fetch_pongs(PINGPONG_URL)}\n".encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))

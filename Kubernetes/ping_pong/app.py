@@ -2,45 +2,34 @@ import os
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-PONG_FILE = os.environ.get("PONG_FILE", "/usr/src/app/files/pongs.txt")
-
+# Contador só em memória: não há mais volume compartilhado com o log_output
+counter = 0
 lock = threading.Lock()
-
-
-def load_counter():
-    try:
-        with open(PONG_FILE) as f:
-            return int(f.read().strip() or 0)
-    except FileNotFoundError:
-        return 0
-
-
-def save_counter(value):
-    os.makedirs(os.path.dirname(PONG_FILE), exist_ok=True)
-    with open(PONG_FILE, "w") as f:
-        f.write(str(value))
-
-
-counter = load_counter()
 
 
 class PingPongHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         global counter
-        if self.path.rstrip("/") != "/pingpong":
+        path = self.path.rstrip("/")
+
+        if path == "/pingpong":
+            with lock:
+                body = f"pong {counter}"
+                counter += 1
+        elif path == "/pings":
+            # Endpoint interno para o log_output: só lê, não incrementa
+            with lock:
+                body = str(counter)
+        else:
             self.send_error(404)
             return
 
-        with lock:
-            body = f"pong {counter}".encode()
-            counter += 1
-            save_counter(counter)
-
+        data = body.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Length", str(len(data)))
         self.end_headers()
-        self.wfile.write(body)
+        self.wfile.write(data)
 
     def log_message(self, format, *args):
         pass

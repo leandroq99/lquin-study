@@ -103,6 +103,7 @@ Código em [`Kubernetes/`](Kubernetes). Cada link aponta para a release do exerc
 - [1.11.](https://github.com/leandroq99/lquin-study/tree/1.11/Kubernetes/persistent_volume)
 - [1.12.](https://github.com/leandroq99/lquin-study/tree/1.12/Kubernetes/todo_app)
 - [1.13.](https://github.com/leandroq99/lquin-study/tree/1.13/Kubernetes/todo_app)
+- [2.1.](https://github.com/leandroq99/lquin-study/tree/2.1/Kubernetes)
 
 <!-- Ao terminar cada exercício, adicione uma linha como:
 - [1.1.](https://github.com/leandroq99/lquin-study/tree/1.1/Kubernetes/log_output)

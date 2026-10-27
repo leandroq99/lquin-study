@@ -18,7 +18,10 @@ spec:
             claimName: lab-claim 
       containers:
         - name: log-reader
-          image: leandrocfg/log_reader:1.11 
+          image: leandrocfg/log_reader:2.1 
+          env:
+            - name: PINGPONG_URL
+              value: "http://ping-pong-svc:2323/pings" 
           volumeMounts:
             - name: vol-reader
               mountPath: /usr/src/app/files/
