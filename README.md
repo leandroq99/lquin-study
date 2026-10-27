@@ -105,6 +105,7 @@ Código em [`Kubernetes/`](Kubernetes). Cada link aponta para a release do exerc
 - [1.13.](https://github.com/leandroq99/lquin-study/tree/1.13/Kubernetes/todo_app)
 - [2.1.](https://github.com/leandroq99/lquin-study/tree/2.1/Kubernetes)
 - [2.2.](https://github.com/leandroq99/lquin-study/tree/2.2/Kubernetes)
+- [2.3.](https://github.com/leandroq99/lquin-study/tree/2.3/Kubernetes)
 
 <!-- Ao terminar cada exercício, adicione uma linha como:
 - [1.1.](https://github.com/leandroq99/lquin-study/tree/1.1/Kubernetes/log_output)

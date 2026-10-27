@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: log-output
+  namespace: exercises
 spec:
   replicas: 1
   selector:
@@ -14,8 +15,7 @@ spec:
     spec:
       volumes:
         - name: vol-reader
-          persistentVolumeClaim:
-            claimName: lab-claim 
+          emptyDir: {}
       containers:
         - name: log-reader
           image: leandrocfg/log_reader:2.1 
