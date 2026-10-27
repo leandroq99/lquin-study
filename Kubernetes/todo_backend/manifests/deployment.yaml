@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: todo-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: todo-backend
+  template:
+    metadata:
+      labels:
+        app: todo-backend
+    spec:
+      containers:
+        - name: todo-app
+          image: leandrocfg/todo-backend:2.2
+          env:
+            - name: PORT
+              value: "3000"
+            - name: TODO_BACKEND_URL
+              value: http://todo-backend-svc:2345/todos

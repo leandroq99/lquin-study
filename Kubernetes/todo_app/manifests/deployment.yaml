@@ -18,7 +18,7 @@ spec:
             claimName: todo-claim
       containers:
         - name: todo-app
-          image: leandrocfg/todo-app:1.13.1
+          image: leandrocfg/todo-app:2.2
           volumeMounts:
             - name: todo-volume
               mountPath: /usr/src/app/files

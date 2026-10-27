@@ -1,3 +1,5 @@
+import html
+import json
 import os
 import time
 import urllib.request
@@ -7,6 +9,7 @@ port = int(os.environ.get("PORT", "3000"))
 IMAGE_DIR = os.environ.get("IMAGE_DIR", "/usr/src/app/files")
 IMAGE_URL = os.environ.get("IMAGE_URL", "https://picsum.photos/1200")
 IMAGE_TTL = int(os.environ.get("IMAGE_TTL", "600"))  # 10 minutos
+TODO_BACKEND_URL = os.environ.get("TODO_BACKEND_URL", "http://todo-backend-svc:2345/todos")
 
 IMAGE_FILE = os.path.join(IMAGE_DIR, "image.jpg")
 STALE_FLAG = os.path.join(IMAGE_DIR, "stale_served")
@@ -94,15 +97,13 @@ PAGE = """<!doctype html>
   <main>
     <h1>Todo App</h1>
     <img src="/image.jpg?v={version}" alt="Imagem aleatória">
-    <form onsubmit="return false;">
+    <form method="POST" action="/todos">
       <input type="text" name="todo" maxlength="140" placeholder="Enter a new todo (max 140 characters)" required>
       <button type="submit">Send</button>
     </form>
     <h2>Todos</h2>
     <ul>
-      <li>Learn Kubernetes basics</li>
-      <li>Deploy application to cluster</li>
-      <li>Configure persistent volumes</li>
+{todos}
     </ul>
   </main>
 </body>
@@ -142,14 +143,55 @@ def refresh_image():
         print(f"Failed to download image, keeping the old one: {e}", flush=True)
 
 
+def fetch_todos():
+    try:
+        with urllib.request.urlopen(TODO_BACKEND_URL, timeout=3) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"Failed to fetch todos from {TODO_BACKEND_URL}: {e}", flush=True)
+        return None
+
+
+def render_todos(todos):
+    if todos is None:
+        return "      <li>Todo backend unavailable</li>"
+    # html.escape evita que um todo com <script> seja executado na página
+    return "\n".join(f"      <li>{html.escape(t)}</li>" for t in todos)
+
+
 class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        if self.path.split("?")[0] != "/todos":
+            self.send_error(404)
+            return
+
+        # Repassa o formulário para o todo-backend e volta para a página inicial
+        length = int(self.headers.get("Content-Length", 0))
+        req = urllib.request.Request(
+            TODO_BACKEND_URL,
+            data=self.rfile.read(length),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        try:
+            urllib.request.urlopen(req, timeout=3).close()
+        except Exception as e:
+            print(f"Failed to create todo: {e}", flush=True)
+
+        self.send_response(303)
+        self.send_header("Location", "/")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_GET(self):
         path = self.path.split("?")[0]
 
         if path == "/":
             refresh_image()
             version = int(os.path.getmtime(IMAGE_FILE))
-            body = PAGE.format(port=port, version=version).encode("utf-8")
+            body = PAGE.format(
+                port=port, version=version, todos=render_todos(fetch_todos())
+            ).encode("utf-8")
             self.respond(body, "text/html; charset=utf-8")
         elif path == "/image.jpg":
             with open(IMAGE_FILE, "rb") as f:
