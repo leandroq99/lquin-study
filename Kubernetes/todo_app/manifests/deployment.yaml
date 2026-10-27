@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: todo-app
+  namespace: project
 spec:
   replicas: 1
   selector:
@@ -14,8 +15,7 @@ spec:
     spec:
       volumes:
         - name: todo-volume
-          persistentVolumeClaim:
-            claimName: todo-claim
+          emptyDir: {}
       containers:
         - name: todo-app
           image: leandrocfg/todo-app:2.2
