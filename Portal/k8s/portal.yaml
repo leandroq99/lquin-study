@@ -1,7 +1,7 @@
 # Portal de Automação no cluster do lab.
 #
 # Antes de aplicar:
-#   1. Troque DOCKERHUB_USER pelo seu usuário do Docker Hub (linha "image").
+#   1. Imagem publicada pelo GitHub Actions: leandrocfg/portal-automacao.
 #   2. Confira o Service do AWX:  kubectl get svc -n awx   e ajuste AWX_URL.
 #   3. Crie o namespace e o Secret com o token do AWX (fora do Git):
 #        kubectl create namespace portal
@@ -28,7 +28,7 @@ spec:
     spec:
       containers:
         - name: portal
-          image: DOCKERHUB_USER/portal-automacao:latest
+          image: leandrocfg/portal-automacao:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080

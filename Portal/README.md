@@ -34,7 +34,7 @@ Secrets necessários no repositório: `DOCKERHUB_USERNAME` e `DOCKERHUB_TOKEN` (
 kubectl create namespace portal
 kubectl -n portal create secret generic portal-awx --from-literal=AWX_TOKEN='<token do AWX>'
 
-# 2. Ajuste o usuário do Docker Hub (image) e o AWX_URL em k8s/portal.yaml
+# 2. Confira o AWX_URL em k8s/portal.yaml (imagem: leandrocfg/portal-automacao)
 kubectl get svc -n awx            # nome do Service do AWX
 
 # 3. Aplique
