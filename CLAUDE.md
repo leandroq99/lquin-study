@@ -30,6 +30,7 @@ These playbooks are designed to be run **by AWX** (project `AWX-PROJECT`, git-sy
 - `Ansible/dns/` — DNS record and DNS-client configuration playbooks, with Jinja2 templates.
 - `Ansible/LDAP/` — OpenLDAP client config (`config_openLDAP.yml`, nslcd/authselect-based) plus standalone shell scripts (`scripts/`) for LDAP user/group management.
 - `Ansible/zabbix/` — Zabbix server and agent installation/config, with `templates/*.j2` and vault-encrypted `vars/secrets.yml`.
+- `Ansible/remote_command/` — `run_command.yml`, launched via the AWX API (or a self-service portal) to run one command on the hosts given in the launch `limit` (`hosts: all` + a guard that refuses a missing/`all` limit). `dnf`/`yum` are always allowed and run with `become`; other commands must be listed in `allowed_commands`, set in the Job Template's Variables (never on launch). Per-host results go to the job's `artifacts.results` via `set_stats`; `dnf check-update` rc=100 counts as success.
 - `Ansible/facts.yml` — simple ad-hoc fact-gathering playbook.
 
 **`target_hosts` pattern**: several playbooks (`facts.yml`, `Ansible/LDAP/config_openLDAP.yml`, `Ansible/zabbix/install_zabbix_agent.yml`) use `hosts: "{{ target_hosts | default('<group>') }}"` so AWX can point a single Job Template at different inventory groups/hosts at launch time (via a Survey or extra var), instead of hardcoding a target per playbook.

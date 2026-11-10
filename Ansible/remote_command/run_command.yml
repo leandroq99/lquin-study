@@ -1,0 +1,124 @@
+---
+# Playbook: executar um comando em um ou mais hosts via API do AAP
+#
+# Entradas do launch (operador):
+#   limit          -> hosts/grupos alvo (campo "limit" do launch, não é extra_var)
+#   command_to_run -> comando a executar (survey), ex.: "dnf -y update openssl"
+#
+# Configuração no Job Template (Variables / extra_vars), mantida pelo time de automação:
+#   allowed_commands -> comandos liberados além de dnf/yum (lista), ex.:
+#                         allowed_commands:
+#                           - df
+#                           - systemctl
+#   become_commands  -> (opcional) comandos extras que devem rodar como root
+#
+# dnf e yum são sempre permitidos, com qualquer parâmetro, e rodam com become.
+
+- name: Executar comando nos hosts informados no limit
+  hosts: all
+  gather_facts: false
+  any_errors_fatal: true   # se a validação falhar em um host, o job para inteiro
+
+  vars:
+    # Não use o nome "allowed_commands" aqui: extra_vars do template têm
+    # precedência máxima e sobrescreveriam a lista em vez de somar.
+    default_allowed_commands:
+      - dnf
+      - yum
+    default_become_commands:
+      - dnf
+      - yum
+
+    # Aceita lista ou string separada por vírgula vinda do template.
+    # (if/else em vez de ternary: o ternary avalia os dois lados e quebra com listas)
+    _raw_allowed: "{{ allowed_commands | default([]) }}"
+    _raw_become: "{{ become_commands | default([]) }}"
+    _extra_allowed: >-
+      {{ (_raw_allowed.split(',') if _raw_allowed is string else _raw_allowed)
+         | map('string') | map('trim') | select | list }}
+    _extra_become: >-
+      {{ (_raw_become.split(',') if _raw_become is string else _raw_become)
+         | map('string') | map('trim') | select | list }}
+
+    effective_allowed_commands: "{{ (default_allowed_commands + _extra_allowed) | unique }}"
+    effective_become_commands: "{{ (default_become_commands + _extra_become) | unique }}"
+
+    base_command: "{{ (command_to_run | default('') | trim).split() | first | default('') }}"
+
+    # "dnf/yum check-update" retorna rc=100 quando há atualizações disponíveis.
+    # Isso não é erro: o host é tratado como sucesso e marcado com updates_available.
+    is_check_update: >-
+      {{ base_command in ['dnf', 'yum']
+         and ((command_to_run | trim).split() | intersect(['check-update', 'check-upgrade']) | length > 0) }}
+
+  pre_tasks:
+    # Trava: sem limit, "hosts: all" rodaria no inventário inteiro.
+    - name: Exigir que um limit tenha sido informado
+      ansible.builtin.assert:
+        that:
+          - ansible_limit is defined
+          - ansible_limit | string | trim | length > 0
+          - ansible_limit | trim not in ['all', '*']
+        fail_msg: "Informe 'limit' no launch (host, lista de hosts ou grupo)."
+        quiet: true
+
+    - name: Verificar se o comando foi informado
+      ansible.builtin.assert:
+        that:
+          - base_command | length > 0
+        fail_msg: "Envie 'command_to_run' no extra_vars."
+        quiet: true
+
+    - name: Verificar se o comando está na lista permitida
+      ansible.builtin.assert:
+        that:
+          - base_command in effective_allowed_commands
+        fail_msg: >-
+          Comando '{{ base_command }}' não permitido.
+          Permitidos: {{ effective_allowed_commands | join(', ') }}
+        quiet: true
+
+  tasks:
+    - name: Executar '{{ command_to_run }}'
+      ansible.builtin.command:
+        cmd: "{{ command_to_run }}"
+      become: "{{ base_command in effective_become_commands }}"
+      register: cmd_result
+      changed_when: false
+      failed_when: false
+
+    - name: Interpretar código de retorno
+      ansible.builtin.set_fact:
+        cmd_ok: "{{ cmd_result.rc == 0 or (is_check_update | bool and cmd_result.rc == 100) }}"
+        # true = há atualizações (rc 100), false = nada a atualizar (rc 0),
+        # null = não é check-update ou o comando falhou
+        updates_available: >-
+          {{ (is_check_update | bool and cmd_result.rc == 100) | ternary(true,
+             (is_check_update | bool and cmd_result.rc == 0) | ternary(false, none)) }}
+
+    - name: Mostrar saída
+      ansible.builtin.debug:
+        var: cmd_result.stdout_lines
+
+    # Junta o resultado de todos os hosts no campo "artifacts" do job:
+    # artifacts.results.<hostname> = {rc, ok, updates_available, stdout, stderr}
+    # updates_available só é true/false em check-update; nos demais comandos é null.
+    - name: Publicar resultado como artifact do job
+      ansible.builtin.set_stats:
+        data:
+          command: "{{ command_to_run }}"
+          results: >-
+            {{ {inventory_hostname: {
+                  'rc': cmd_result.rc,
+                  'ok': cmd_ok | bool,
+                  'updates_available': updates_available,
+                  'stdout': cmd_result.stdout,
+                  'stderr': (cmd_ok | bool) | ternary(cmd_result.stderr, cmd_result.stderr | default('', true) or cmd_result.msg | default(''))}} }}
+        per_host: false
+        aggregate: true
+
+    # Hosts com erro aparecem como "failed" no job, sem interromper os demais.
+    - name: Marcar host como falho se o comando retornou erro
+      ansible.builtin.fail:
+        msg: "rc={{ cmd_result.rc }}: {{ cmd_result.stderr | default('', true) or cmd_result.msg | default('') }}"
+      when: not (cmd_ok | bool)

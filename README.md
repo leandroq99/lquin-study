@@ -61,6 +61,7 @@ GitHub (este repo) ──push──► GitHub Actions ──API──► AWX (no
   - `dns/` — registros DNS e configuração de clientes
   - `LDAP/` — cliente OpenLDAP (nslcd/authselect) e scripts de gestão de usuários/grupos
   - `zabbix/` — instalação do Zabbix server e agents (segredos via Ansible Vault)
+  - `remote_command/` — `run_command.yml`: executa comandos (`dnf`/`yum` + lista `allowed_commands` do template) nos hosts do `limit`, chamado via API do AWX
   - `facts.yml` — coleta de facts ad-hoc
 - `.github/workflows/` — sync automático do projeto no AWX a cada push
 - `Docker/` — anotações de estudo de Docker
