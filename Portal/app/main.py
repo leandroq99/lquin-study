@@ -2,39 +2,82 @@
 Portal de Automação - backend (BFF) para o AWX / Ansible Automation Platform.
 
 O navegador nunca recebe o token: só este backend fala com a API do AWX.
+Os usuários entram com o login do LDAP/AD; o AWX vê um único usuário de serviço
+(o dono do token), e o portal decide quem pode executar o quê:
 
-Variáveis de ambiente:
-  AWX_URL         URL base do AWX, ex.: https://awx.minha-vm.local  (obrigatória)
-  AWX_TOKEN       token OAuth/PAT do AWX com permissão Execute nos templates (obrigatória)
-  AWX_API_PREFIX  prefixo da API. AWX: /api/v2   AAP 2.5+: /api/controller/v2   (padrão /api/v2)
-  AWX_VERIFY_SSL  "false" para aceitar certificado autoassinado (padrão true)
-  PORTAL_LABEL    só mostra templates com esta label no AWX (padrão "portal"; vazio = todos)
-  PORTAL_HISTORY_SIZE   quantas execuções mostrar no histórico (padrão 10)
-  PORTAL_STDOUT_MAX_KB  quanto da saída do job mostrar na tela, a partir do fim (padrão 256)
+  - template publicado = label PORTAL_LABEL ("portal") no AWX
+  - quem pode usar      = labels "grupo:<grupo do LDAP>" no template
+  - PORTAL_ADMIN_GROUP  = vê e executa todos os templates publicados
+  - cada execução grava o usuário real na variável PORTAL_USER_VAR ("portal_user"),
+    se o survey do template tiver essa pergunta
+
+Variáveis de ambiente (LDAP_*: veja auth.py):
+  AWX_URL, AWX_TOKEN      AWX e token do usuário de serviço (obrigatórias)
+  AWX_API_PREFIX          /api/v2 (AWX) ou /api/controller/v2 (AAP 2.5+)
+  AWX_VERIFY_SSL          "false" para certificado autoassinado
+  PORTAL_LABEL            label que publica o template (padrão "portal")
+  PORTAL_GROUP_PREFIX     prefixo das labels de grupo (padrão "grupo:")
+  PORTAL_ADMIN_GROUP      grupo LDAP com acesso total (padrão "portal-admins")
+  PORTAL_USER_VAR         variável do survey que recebe o usuário (padrão "portal_user")
+  PORTAL_SESSION_SECRET   chave que assina o cookie de sessão (obrigatória em produção)
+  PORTAL_SESSION_HOURS    duração da sessão (padrão 8)
+  PORTAL_COOKIE_SECURE    "true" quando o portal estiver em HTTPS
+  PORTAL_HISTORY_SIZE     execuções no histórico (padrão 10)
+  PORTAL_STDOUT_MAX_KB    quanto da saída mostrar na tela, a partir do fim (padrão 256)
 """
 
 import json
+import logging
 import os
+import secrets
+import time
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.middleware.sessions import SessionMiddleware
+
+import auth
 
 AWX_URL = os.environ.get("AWX_URL", "").rstrip("/")
 AWX_TOKEN = os.environ.get("AWX_TOKEN", "")
 API = os.environ.get("AWX_API_PREFIX", "/api/v2").rstrip("/")
 VERIFY = os.environ.get("AWX_VERIFY_SSL", "true").lower() not in ("false", "0", "no")
 PORTAL_LABEL = os.environ.get("PORTAL_LABEL", "portal")
+GROUP_PREFIX = os.environ.get("PORTAL_GROUP_PREFIX", "grupo:")
+ADMIN_GROUP = os.environ.get("PORTAL_ADMIN_GROUP", "portal-admins")
+USER_VAR = os.environ.get("PORTAL_USER_VAR", "portal_user")
 HISTORY_SIZE = int(os.environ.get("PORTAL_HISTORY_SIZE", "10"))
 STDOUT_MAX_BYTES = int(os.environ.get("PORTAL_STDOUT_MAX_KB", "256")) * 1024
+SESSION_HOURS = int(os.environ.get("PORTAL_SESSION_HOURS", "8"))
+SESSION_SECRET = os.environ.get("PORTAL_SESSION_SECRET", "")
+COOKIE_SECURE = os.environ.get("PORTAL_COOKIE_SECURE", "false").lower() in ("true", "1", "yes")
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 FINISHED = {"successful", "failed", "error", "canceled"}
 
-app = FastAPI(title="Portal de Automação")
+log = logging.getLogger("portal")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
+if not SESSION_SECRET:
+    SESSION_SECRET = secrets.token_urlsafe(32)
+    log.warning("PORTAL_SESSION_SECRET não definido: usando chave aleatória (sessões caem a cada restart).")
+
+app = FastAPI(title="Portal de Automação")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET,
+    session_cookie="portal_session",
+    max_age=SESSION_HOURS * 3600,
+    same_site="lax",
+    https_only=COOKIE_SECURE,
+)
+
+
+# ================================================================ AWX
 
 def awx() -> httpx.Client:
     if not AWX_URL or not AWX_TOKEN:
@@ -61,37 +104,106 @@ def get(path: str, **params):
     return r
 
 
-# ---------------------------------------------------------------- catálogo
+def _labels(obj: dict) -> list[str]:
+    return [l["name"] for l in obj.get("summary_fields", {}).get("labels", {}).get("results", [])]
+
+
+# ================================================================ sessão e permissões
+
+def current_user(request: Request) -> dict:
+    user = request.session.get("user")
+    if not user:
+        raise HTTPException(401, "Faça login para continuar.")
+    return user
+
+
+def is_admin(user: dict) -> bool:
+    return ADMIN_GROUP in user["groups"]
+
+
+def can_use(user: dict, labels: list[str]) -> bool:
+    """Template publicado e liberado para algum grupo do usuário (admins: todos os publicados)."""
+    if PORTAL_LABEL and PORTAL_LABEL not in labels:
+        return False
+    if is_admin(user):
+        return True
+    allowed = {l[len(GROUP_PREFIX):] for l in labels if l.startswith(GROUP_PREFIX)}
+    return bool(allowed & set(user["groups"]))
+
+
+_tpl_cache: dict[int, tuple[float, dict]] = {}
+
+
+def template(tid: int) -> dict:
+    """Template do AWX com cache curto (as labels são consultadas a cada chamada)."""
+    hit = _tpl_cache.get(tid)
+    if hit and time.time() - hit[0] < 30:
+        return hit[1]
+    t = get(f"/job_templates/{tid}/").json()
+    _tpl_cache[tid] = (time.time(), t)
+    return t
+
+
+def require_template(tid: int, user: dict) -> dict:
+    t = template(tid)
+    if not can_use(user, _labels(t)):
+        raise HTTPException(404, "Automação não encontrada ou sem permissão.")
+    return t
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/login")
+def login(req: LoginRequest, request: Request):
+    try:
+        user = auth.authenticate(req.username, req.password)
+    except auth.AuthError as e:
+        log.info("login recusado: user=%s motivo=%s", req.username, e)
+        time.sleep(1)  # freia tentativas em sequência
+        raise HTTPException(401, str(e))
+    request.session.clear()
+    request.session["user"] = user
+    log.info("login: user=%s grupos=%s", user["username"], ",".join(user["groups"]))
+    return {**user, "admin": is_admin(user)}
+
+
+@app.post("/api/logout")
+def logout(request: Request):
+    request.session.clear()
+    return {"ok": True}
+
+
+@app.get("/api/me")
+def me(user: dict = Depends(current_user)):
+    return {**user, "admin": is_admin(user)}
+
+
+# ================================================================ catálogo e formulário
 
 @app.get("/api/templates")
-def list_templates():
-    params = {"page_size": 100, "order_by": "name"}
+def list_templates(user: dict = Depends(current_user)):
+    params = {"page_size": 200, "order_by": "name"}
     if PORTAL_LABEL:
         params["labels__name"] = PORTAL_LABEL
     data = get("/job_templates/", **params).json()
+    hidden = {PORTAL_LABEL}
     return [
         {
             "id": t["id"],
             "name": t["name"],
             "description": t.get("description", ""),
-            "labels": [l["name"] for l in t.get("summary_fields", {}).get("labels", {}).get("results", [])
-                       if l["name"] != PORTAL_LABEL],
+            "labels": [l for l in _labels(t) if l not in hidden and not l.startswith(GROUP_PREFIX)],
         }
         for t in data.get("results", [])
+        if can_use(user, _labels(t))
     ]
 
 
-# ---------------------------------------------------------------- formulário
-
-@app.get("/api/templates/{tid}/form")
-def template_form(tid: int):
-    t = get(f"/job_templates/{tid}/").json()
-    if PORTAL_LABEL:
-        names = [l["name"] for l in t.get("summary_fields", {}).get("labels", {}).get("results", [])]
-        if PORTAL_LABEL not in names:
-            raise HTTPException(404, "Template não publicado no portal.")
-
-    fields = []
+def _form(t: dict) -> dict:
+    fields, has_user_var = [], False
     if t.get("ask_limit_on_launch"):
         fields.append({
             "kind": "limit", "variable": "limit", "type": "text", "required": True,
@@ -99,10 +211,12 @@ def template_form(tid: int):
             "help": "Um host, uma lista separada por vírgula ou um grupo do inventário.",
             "default": "",
         })
-
     if t.get("survey_enabled"):
-        spec = get(f"/job_templates/{tid}/survey_spec/").json()
+        spec = get(f"/job_templates/{t['id']}/survey_spec/").json()
         for q in spec.get("spec", []):
+            if q["variable"] == USER_VAR:  # preenchido pelo backend, nunca pelo usuário
+                has_user_var = True
+                continue
             choices = q.get("choices") or []
             if isinstance(choices, str):
                 choices = [c for c in choices.split("\n") if c]
@@ -118,11 +232,16 @@ def template_form(tid: int):
                 "min": q.get("min"),
                 "max": q.get("max"),
             })
+    return {"id": t["id"], "name": t["name"], "description": t.get("description", ""),
+            "fields": fields, "records_user": has_user_var}
 
-    return {"id": t["id"], "name": t["name"], "description": t.get("description", ""), "fields": fields}
+
+@app.get("/api/templates/{tid}/form")
+def template_form(tid: int, user: dict = Depends(current_user)):
+    return _form(require_template(tid, user))
 
 
-# ---------------------------------------------------------------- execução
+# ================================================================ execução
 
 class LaunchRequest(BaseModel):
     limit: str | None = None
@@ -130,10 +249,13 @@ class LaunchRequest(BaseModel):
 
 
 @app.post("/api/templates/{tid}/launch")
-def launch(tid: int, req: LaunchRequest):
-    form = template_form(tid)  # garante que o template está publicado no portal
+def launch(tid: int, req: LaunchRequest, user: dict = Depends(current_user)):
+    form = _form(require_template(tid, user))
     allowed = {f["variable"] for f in form["fields"] if f["kind"] == "survey"}
-    body = {"extra_vars": {k: v for k, v in req.extra_vars.items() if k in allowed}}
+    extra = {k: v for k, v in req.extra_vars.items() if k in allowed}
+    if form["records_user"]:
+        extra[USER_VAR] = user["username"]  # sempre do login, nunca do formulário
+    body = {"extra_vars": extra}
     if req.limit is not None and any(f["kind"] == "limit" for f in form["fields"]):
         body["limit"] = req.limit.strip()
 
@@ -144,17 +266,27 @@ def launch(tid: int, req: LaunchRequest):
         raise HTTPException(502, f"Não foi possível falar com o AWX: {e}")
 
     if r.status_code >= 400:
-        # Repassa a mensagem do AWX (ex.: survey obrigatório, limit inválido)
         try:
             detail = r.json()
         except ValueError:
             detail = r.text
+        log.info("launch recusado: user=%s template=%s awx=%s", user["username"], tid, r.status_code)
         raise HTTPException(400, {"awx_status": r.status_code, "awx_error": detail})
 
-    return {"job": r.json()["job"]}
+    jid = r.json()["job"]
+    log.info("launch: user=%s template=%s job=%s limit=%s vars=%s",
+             user["username"], tid, jid, body.get("limit", ""), sorted(extra))
+    return {"job": jid}
 
 
-# ---------------------------------------------------------------- acompanhamento
+# ================================================================ acompanhamento
+
+def _extra(j: dict) -> dict:
+    try:
+        return json.loads(j.get("extra_vars") or "{}")
+    except ValueError:
+        return {}
+
 
 def _job_summary(j: dict) -> dict:
     sf = j.get("summary_fields", {})
@@ -168,78 +300,101 @@ def _job_summary(j: dict) -> dict:
         "started": j.get("started"),
         "elapsed": j.get("elapsed"),
         "limit": j.get("limit") or "",
+        "portal_user": _extra(j).get(USER_VAR),
     }
 
 
-@app.get("/api/jobs/{jid}")
-def job_status(jid: int):
+def require_job(jid: int, user: dict) -> dict:
+    """Job de um template que o usuário pode usar (vale para ver resultado e saída)."""
     j = get(f"/jobs/{jid}/").json()
-    out = _job_summary(j)
+    tid = (j.get("summary_fields", {}).get("job_template") or {}).get("id")
+    if not tid:
+        raise HTTPException(404, "Execução não encontrada ou sem permissão.")
     try:
-        extra = json.loads(j.get("extra_vars") or "{}")
-    except ValueError:
-        extra = {}
-    out.update({
-        "extra_vars": extra,  # o AWX já mascara campos password como $encrypted$
-        "launched_by": (j.get("summary_fields", {}).get("created_by") or {}).get("username"),
-        "results": None,
-        "unreachable": [],
-    })
+        require_template(tid, user)
+    except HTTPException:
+        raise HTTPException(404, "Execução não encontrada ou sem permissão.")
+    return j
+
+
+@app.get("/api/jobs/{jid}")
+def job_status(jid: int, user: dict = Depends(current_user)):
+    j = require_job(jid, user)
+    out = _job_summary(j)
+    extra = _extra(j)
+    extra.pop(USER_VAR, None)
+    out.update({"extra_vars": extra, "results": None, "unreachable": []})  # password vem como $encrypted$
     if out["finished"]:
-        artifacts = j.get("artifacts") or {}
-        out["results"] = artifacts.get("results")
+        out["results"] = (j.get("artifacts") or {}).get("results")
         summaries = get(f"/jobs/{jid}/job_host_summaries/", page_size=200).json()
         out["unreachable"] = [s["host_name"] for s in summaries.get("results", []) if s.get("dark")]
     return out
 
 
-# ---------------------------------------------------------------- histórico
+# ================================================================ histórico
 
-_me_cache: dict = {}
+_svc_user: dict = {}
 
 
-def _my_user_id() -> int:
-    if "id" not in _me_cache:
-        _me_cache["id"] = get("/me/").json()["results"][0]["id"]
-    return _me_cache["id"]
+def _svc_user_id() -> int:
+    if "id" not in _svc_user:
+        _svc_user["id"] = get("/me/").json()["results"][0]["id"]
+    return _svc_user["id"]
 
 
 @app.get("/api/jobs")
-def job_history():
-    """Últimas execuções disparadas pelo portal (usuário do token), mais recentes primeiro."""
-    params = {"created_by": _my_user_id(), "order_by": "-id", "page_size": HISTORY_SIZE}
+def job_history(user: dict = Depends(current_user)):
+    """Últimas execuções feitas pelo portal: as do próprio usuário (admins: todas)."""
+    # Busca uma janela maior e filtra aqui: permissão e dono vêm de labels e extra_vars.
+    params = {"created_by": _svc_user_id(), "order_by": "-id", "page_size": max(HISTORY_SIZE * 5, 50)}
     data = None
     if PORTAL_LABEL:
         try:
             data = get("/jobs/", **params, job_template__labels__name=PORTAL_LABEL).json()
         except httpx.HTTPStatusError:
-            data = None  # AWX sem suporte ao filtro: cai para todos os jobs do usuário do portal
+            data = None  # AWX sem suporte ao filtro: cai para todos os jobs do usuário de serviço
     if data is None:
         data = get("/jobs/", **params).json()
-    return [_job_summary(j) for j in data.get("results", [])]
+
+    out = []
+    for j in data.get("results", []):
+        if "extra_vars" not in j:  # algumas versões não trazem extra_vars na listagem
+            j = get(f"/jobs/{j['id']}/").json()
+        s = _job_summary(j)
+        if not s["template_id"]:
+            continue
+        if not is_admin(user) and s["portal_user"] != user["username"]:
+            continue
+        try:
+            require_template(s["template_id"], user)
+        except HTTPException:
+            continue
+        out.append(s)
+        if len(out) >= HISTORY_SIZE:
+            break
+    return out
 
 
-# ---------------------------------------------------------------- saída do job
+# ================================================================ saída do job
 
 @app.get("/api/jobs/{jid}/stdout")
-def job_stdout(jid: int):
+def job_stdout(jid: int, user: dict = Depends(current_user)):
+    require_job(jid, user)
     # "txt" é recusado pelo AWX acima de ~1 MB; "txt_download" sempre devolve tudo.
     text = get(f"/jobs/{jid}/stdout/", format="txt_download").text
     size = len(text.encode())
     truncated = size > STDOUT_MAX_BYTES
     if truncated:
-        # mostra o final, onde ficam o resultado e o PLAY RECAP
         tail = text.encode()[-STDOUT_MAX_BYTES:].decode(errors="ignore")
-        text = tail[tail.find("\n") + 1:]
+        text = tail[tail.find("\n") + 1:]  # mostra o final, onde ficam o resultado e o PLAY RECAP
     return {"stdout": text, "truncated": truncated, "size": size}
 
 
 @app.get("/api/jobs/{jid}/stdout/download")
-def job_stdout_download(jid: int):
+def job_stdout_download(jid: int, user: dict = Depends(current_user)):
+    require_job(jid, user)
     text = get(f"/jobs/{jid}/stdout/", format="txt_download").text
-    return PlainTextResponse(
-        text, headers={"Content-Disposition": f'attachment; filename="job-{jid}.txt"'}
-    )
+    return PlainTextResponse(text, headers={"Content-Disposition": f'attachment; filename="job-{jid}.txt"'})
 
 
 @app.get("/healthz")
@@ -247,7 +402,7 @@ def healthz():
     return {"ok": True}
 
 
-# ---------------------------------------------------------------- frontend
+# ================================================================ frontend
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

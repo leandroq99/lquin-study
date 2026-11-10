@@ -66,13 +66,27 @@
     <div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg></div>
     <div><b>Portal de Automação</b><small>Ansible Automation Platform / AWX</small></div>
   </div>
-  <nav class="row"><button class="secondary" id="nav-catalog" type="button">Catálogo</button><button class="secondary" id="nav-history" type="button">Histórico</button></nav>
+  <nav class="row" id="nav" hidden><button class="secondary" id="nav-catalog" type="button">Catálogo</button><button class="secondary" id="nav-history" type="button">Histórico</button><span class="meta" id="who" style="margin-left:8px"></span><button class="link" id="nav-logout" type="button" style="min-height:44px">Sair</button></nav>
 </header>
 
 
 <main>
+  <!-- Login -->
+  <section id="v-login" hidden>
+    <form class="form" id="login-form" style="max-width:420px;margin:40px auto 0" novalidate>
+      <div>
+        <h1>Entrar</h1>
+        <p class="lead" style="margin:0">Use seu usuário e senha da rede (LDAP / AD).</p>
+      </div>
+      <div class="field"><label for="l-user">Usuário</label><input id="l-user" autocomplete="username" required></div>
+      <div class="field"><label for="l-pass">Senha</label><input id="l-pass" type="password" autocomplete="current-password" required></div>
+      <div id="login-error" class="alert" role="alert" hidden></div>
+      <button class="primary" id="btn-login" type="submit">Entrar</button>
+    </form>
+  </section>
+
   <!-- Catálogo -->
-  <section id="v-catalog">
+  <section id="v-catalog" hidden>
     <h1>Catálogo de automações</h1>
     <p class="lead">Escolha o que executar. Só aparecem os templates publicados no portal.</p>
     <div id="catalog-msg" class="empty" hidden></div>
@@ -82,7 +96,7 @@
   <!-- Histórico -->
   <section id="v-history" hidden>
     <h1>Histórico</h1>
-    <p class="lead">Últimas execuções feitas pelo portal. Clique numa linha para ver o resultado.</p>
+    <p class="lead" id="history-lead">Suas últimas execuções. Clique numa linha para ver o resultado.</p>
     <div id="history-msg" class="empty" hidden></div>
     <div class="tablebox" id="history-box" hidden></div>
   </section>
@@ -93,6 +107,7 @@
     <h1 id="form-title" style="margin-top:12px"></h1>
     <p class="lead" id="form-desc"></p>
     <form class="form" id="form" novalidate>
+      <div class="notice" id="form-admin-note" hidden style="margin:0 0 20px">Este template não registra quem executou. No survey do AWX, adicione a pergunta <b class="mono">portal_user</b> (texto, opcional); o portal preenche com o usuário logado e esconde o campo do formulário.</div>
       <div id="form-fields"></div>
       <div id="form-error" class="alert" role="alert" hidden></div>
       <div class="row">
@@ -135,7 +150,8 @@ let current = null;   // template aberto no formulário: {id, name, fields}
 let lastValues = {};  // valores para pré-preencher o formulário
 let job = null;       // último status do job aberto
 let pollTimer = null;
-const VIEWS = ["catalog", "history", "form", "run"];
+let me = null;          // usuário logado
+const VIEWS = ["login", "catalog", "history", "form", "run"];
 
 function show(view) {
   VIEWS.forEach((v) => ($("v-" + v).hidden = v !== view));
@@ -149,9 +165,53 @@ function show(view) {
 async function api(path, opts) {
   const r = await fetch(path, opts);
   const body = await r.json().catch(() => ({}));
+  if (r.status === 401 && path !== "/api/login") { showLogin(); throw "Sessão expirada. Entre novamente."; }
   if (!r.ok) throw body.detail ?? body;
   return body;
 }
+
+// ---------------- login
+function setUser(u) {
+  me = u;
+  $("nav").hidden = !u;
+  $("who").textContent = u ? `${u.name}${u.admin ? " · admin" : ""}` : "";
+}
+
+function showLogin() {
+  setUser(null);
+  if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+  VIEWS.forEach((v) => ($("v-" + v).hidden = v !== "login"));
+  $("login-error").hidden = true;
+  $("l-pass").value = "";
+  setTimeout(() => $("l-user").focus(), 0);
+}
+
+$("login-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  $("btn-login").disabled = true;
+  $("login-error").hidden = true;
+  try {
+    const u = await api("/api/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: $("l-user").value, password: $("l-pass").value }),
+    });
+    setUser(u);
+    $("l-pass").value = "";
+    route(true);
+  } catch (e) {
+    $("login-error").textContent = errText(e);
+    $("login-error").hidden = false;
+  } finally {
+    $("btn-login").disabled = false;
+  }
+});
+
+$("nav-logout").addEventListener("click", async () => {
+  await fetch("/api/logout", { method: "POST" });
+  current = null; job = null; lastValues = {};
+  history.replaceState(null, "", location.pathname);
+  showLogin();
+});
 
 function errText(e) {
   if (typeof e === "string") return e;
@@ -181,7 +241,9 @@ async function loadCatalog() {
   try {
     const items = await api("/api/templates");
     if (!items.length) {
-      $("catalog-msg").textContent = 'Nenhum template publicado. No AWX, adicione a label "portal" ao job template.';
+      $("catalog-msg").textContent = me && me.admin
+        ? 'Nenhum template publicado. No AWX, adicione a label "portal" ao job template.'
+        : "Nenhuma automação liberada para os seus grupos. Fale com o time de automação.";
       return;
     }
     $("catalog-msg").hidden = true;
@@ -201,16 +263,19 @@ async function loadCatalog() {
 // ---------------- histórico
 async function loadHistory() {
   show("history");
+  $("history-lead").textContent = me && me.admin
+    ? "Últimas execuções feitas pelo portal, de todos os usuários. Clique numa linha para ver o resultado."
+    : "Suas últimas execuções. Clique numa linha para ver o resultado.";
   $("history-box").hidden = true;
   $("history-msg").hidden = false;
   $("history-msg").textContent = "Carregando…";
   try {
     const jobs = await api("/api/jobs");
-    if (!jobs.length) { $("history-msg").textContent = "Nenhuma execução feita pelo portal ainda."; return; }
+    if (!jobs.length) { $("history-msg").textContent = me && me.admin ? "Nenhuma execução feita pelo portal ainda." : "Você ainda não executou nada pelo portal."; return; }
     $("history-msg").hidden = true;
     $("history-box").hidden = false;
     $("history-box").innerHTML = `<table class="hist">
-      <thead><tr><th>Execução</th><th>Automação</th><th>Servidores</th><th>Status</th><th>Início</th><th>Duração</th></tr></thead>
+      <thead><tr><th>Execução</th><th>Automação</th><th>Servidores</th><th>Executado por</th><th>Status</th><th>Início</th><th>Duração</th></tr></thead>
       <tbody>${jobs.map((j) => {
         const [cls, txt] = STATUS[j.status] || ["b-run", j.status];
         const pill = cls === "b-ok" ? "p-ok" : cls === "b-fail" ? "p-fail" : "";
@@ -218,6 +283,7 @@ async function loadHistory() {
           <td><a href="#job-${j.id}" data-job="${j.id}">#${j.id}</a></td>
           <td>${esc(j.template_name)}</td>
           <td>${esc(j.limit) || "—"}</td>
+          <td>${esc(j.portal_user) || "—"}</td>
           <td><span class="pill ${pill}" style="${pill ? "" : "background:#fffbeb;color:#92400e"}">${txt}</span></td>
           <td>${fmtDate(j.started)}</td>
           <td>${fmtElapsed(j.elapsed)}</td></tr>`;
@@ -270,6 +336,7 @@ async function openForm(tid) {
   $("form-desc").textContent = current.description || "";
   $("form-fields").innerHTML = current.fields.map(fieldHtml).join("") || '<p class="help">Este template não pede nenhuma informação.</p>';
   $("form-error").hidden = true;
+  $("form-admin-note").hidden = !(me && me.admin && !current.records_user);
   show("form");
 }
 
@@ -338,6 +405,7 @@ function renderInfo(s) {
     if (tpl && !tpl.fields.some((x) => x.variable === k)) continue;  // só mostra o que veio do formulário
     rows.push([label(k), String(v).includes("$encrypted$") ? "••••••" : (Array.isArray(v) ? v.join(", ") : v)]);
   }
+  if (s.portal_user) rows.push(["Executado por", s.portal_user]);
   rows.push(["Início", fmtDate(s.started)]);
   if (s.finished) rows.push(["Duração", fmtElapsed(s.elapsed)]);
   $("run-info").innerHTML = rows.map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("");
@@ -434,13 +502,17 @@ $("btn-again").addEventListener("click", rerun);
 $("btn-stdout").addEventListener("click", showStdout);
 
 // abre direto uma execução pelo link (#job-123); senão, o catálogo
-function route() {
+function route(force) {
+  if (!me) return;
   const m = location.hash.match(/^#job-(\d+)$/);
-  if (m) { if ($("v-run").hidden || !$("run-title").textContent.endsWith("#" + m[1])) openJob(m[1]); }
-  else if (!location.hash) loadCatalog();
+  if (m) { if (force || $("v-run").hidden || !$("run-title").textContent.endsWith("#" + m[1])) openJob(m[1]); }
+  else if (force || !location.hash) loadCatalog();
 }
-window.addEventListener("hashchange", route);
-route();
+window.addEventListener("hashchange", () => route(false));
+
+fetch("/api/me").then(async (r) => {
+  if (r.ok) { setUser(await r.json()); route(true); } else showLogin();
+}).catch(showLogin);
 </script>
 </body>
 </html>

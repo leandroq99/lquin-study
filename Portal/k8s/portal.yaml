@@ -3,9 +3,13 @@
 # Antes de aplicar:
 #   1. Imagem publicada pelo GitHub Actions: leandrocfg/portal-automacao.
 #   2. Confira o Service do AWX:  kubectl get svc -n awx   e ajuste AWX_URL.
-#   3. Crie o namespace e o Secret com o token do AWX (fora do Git):
+#   3. Crie o namespace e o Secret (fora do Git):
 #        kubectl create namespace portal
-#        kubectl -n portal create secret generic portal-awx --from-literal=AWX_TOKEN='<token>'
+#        kubectl -n portal create secret generic portal-awx \
+#          --from-literal=AWX_TOKEN='<token do svc-portal>' \
+#          --from-literal=PORTAL_SESSION_SECRET="$(openssl rand -base64 32)"
+#      Se o LDAP não aceitar busca anônima, acrescente:
+#          --from-literal=LDAP_BIND_PASSWORD='<senha>'   (e preencha LDAP_BIND_DN abaixo)
 ---
 apiVersion: v1
 kind: Namespace
@@ -37,9 +41,23 @@ spec:
             - { name: AWX_API_PREFIX, value: "/api/v2" }
             - { name: AWX_VERIFY_SSL, value: "false" }
             - { name: PORTAL_LABEL, value: "portal" }
+            - { name: PORTAL_GROUP_PREFIX, value: "grupo:" }
+            - { name: PORTAL_ADMIN_GROUP, value: "portal-admins" }
+            # LDAP do lab (OpenLDAP). Para AD corporativo, veja Portal/README.md
+            - { name: LDAP_URL, value: "ldap://ipa-ldap.lab.local" }
+            - { name: LDAP_USER_BASE, value: "ou=People,dc=ipa,dc=local" }
+            - { name: LDAP_USER_FILTER, value: "(uid={username})" }
+            - { name: LDAP_GROUP_BASE, value: "ou=Groups,dc=ipa,dc=local" }
+            - { name: LDAP_BIND_DN, value: "" }
             - name: AWX_TOKEN
               valueFrom:
                 secretKeyRef: { name: portal-awx, key: AWX_TOKEN }
+            - name: PORTAL_SESSION_SECRET
+              valueFrom:
+                secretKeyRef: { name: portal-awx, key: PORTAL_SESSION_SECRET, optional: true }
+            - name: LDAP_BIND_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: portal-awx, key: LDAP_BIND_PASSWORD, optional: true }
           readinessProbe:
             httpGet: { path: /healthz, port: 8080 }
             initialDelaySeconds: 3
