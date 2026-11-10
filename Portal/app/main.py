@@ -9,13 +9,16 @@ Variáveis de ambiente:
   AWX_API_PREFIX  prefixo da API. AWX: /api/v2   AAP 2.5+: /api/controller/v2   (padrão /api/v2)
   AWX_VERIFY_SSL  "false" para aceitar certificado autoassinado (padrão true)
   PORTAL_LABEL    só mostra templates com esta label no AWX (padrão "portal"; vazio = todos)
+  PORTAL_HISTORY_SIZE   quantas execuções mostrar no histórico (padrão 10)
+  PORTAL_STDOUT_MAX_KB  quanto da saída do job mostrar na tela, a partir do fim (padrão 256)
 """
 
+import json
 import os
 
 import httpx
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -24,6 +27,8 @@ AWX_TOKEN = os.environ.get("AWX_TOKEN", "")
 API = os.environ.get("AWX_API_PREFIX", "/api/v2").rstrip("/")
 VERIFY = os.environ.get("AWX_VERIFY_SSL", "true").lower() not in ("false", "0", "no")
 PORTAL_LABEL = os.environ.get("PORTAL_LABEL", "portal")
+HISTORY_SIZE = int(os.environ.get("PORTAL_HISTORY_SIZE", "10"))
+STDOUT_MAX_BYTES = int(os.environ.get("PORTAL_STDOUT_MAX_KB", "256")) * 1024
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 FINISHED = {"successful", "failed", "error", "canceled"}
@@ -151,21 +156,35 @@ def launch(tid: int, req: LaunchRequest):
 
 # ---------------------------------------------------------------- acompanhamento
 
-@app.get("/api/jobs/{jid}")
-def job_status(jid: int):
-    j = get(f"/jobs/{jid}/").json()
-    out = {
+def _job_summary(j: dict) -> dict:
+    sf = j.get("summary_fields", {})
+    jt = sf.get("job_template") or sf.get("unified_job_template") or {}
+    return {
         "id": j["id"],
-        "name": j.get("name"),
+        "template_id": jt.get("id"),
+        "template_name": jt.get("name") or j.get("name"),
         "status": j["status"],
         "finished": j["status"] in FINISHED,
         "started": j.get("started"),
         "elapsed": j.get("elapsed"),
-        "limit": j.get("limit"),
+        "limit": j.get("limit") or "",
+    }
+
+
+@app.get("/api/jobs/{jid}")
+def job_status(jid: int):
+    j = get(f"/jobs/{jid}/").json()
+    out = _job_summary(j)
+    try:
+        extra = json.loads(j.get("extra_vars") or "{}")
+    except ValueError:
+        extra = {}
+    out.update({
+        "extra_vars": extra,  # o AWX já mascara campos password como $encrypted$
         "launched_by": (j.get("summary_fields", {}).get("created_by") or {}).get("username"),
         "results": None,
         "unreachable": [],
-    }
+    })
     if out["finished"]:
         artifacts = j.get("artifacts") or {}
         out["results"] = artifacts.get("results")
@@ -174,9 +193,53 @@ def job_status(jid: int):
     return out
 
 
+# ---------------------------------------------------------------- histórico
+
+_me_cache: dict = {}
+
+
+def _my_user_id() -> int:
+    if "id" not in _me_cache:
+        _me_cache["id"] = get("/me/").json()["results"][0]["id"]
+    return _me_cache["id"]
+
+
+@app.get("/api/jobs")
+def job_history():
+    """Últimas execuções disparadas pelo portal (usuário do token), mais recentes primeiro."""
+    params = {"created_by": _my_user_id(), "order_by": "-id", "page_size": HISTORY_SIZE}
+    data = None
+    if PORTAL_LABEL:
+        try:
+            data = get("/jobs/", **params, job_template__labels__name=PORTAL_LABEL).json()
+        except httpx.HTTPStatusError:
+            data = None  # AWX sem suporte ao filtro: cai para todos os jobs do usuário do portal
+    if data is None:
+        data = get("/jobs/", **params).json()
+    return [_job_summary(j) for j in data.get("results", [])]
+
+
+# ---------------------------------------------------------------- saída do job
+
 @app.get("/api/jobs/{jid}/stdout")
 def job_stdout(jid: int):
-    return {"stdout": get(f"/jobs/{jid}/stdout/", format="txt").text}
+    # "txt" é recusado pelo AWX acima de ~1 MB; "txt_download" sempre devolve tudo.
+    text = get(f"/jobs/{jid}/stdout/", format="txt_download").text
+    size = len(text.encode())
+    truncated = size > STDOUT_MAX_BYTES
+    if truncated:
+        # mostra o final, onde ficam o resultado e o PLAY RECAP
+        tail = text.encode()[-STDOUT_MAX_BYTES:].decode(errors="ignore")
+        text = tail[tail.find("\n") + 1:]
+    return {"stdout": text, "truncated": truncated, "size": size}
+
+
+@app.get("/api/jobs/{jid}/stdout/download")
+def job_stdout_download(jid: int):
+    text = get(f"/jobs/{jid}/stdout/", format="txt_download").text
+    return PlainTextResponse(
+        text, headers={"Content-Disposition": f'attachment; filename="job-{jid}.txt"'}
+    )
 
 
 @app.get("/healthz")

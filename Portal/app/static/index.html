@@ -53,6 +53,10 @@
   .p-fail { background: #fef2f2; color: #991b1b; }
   .stdout { background: #111827; color: #e5e7eb; padding: 16px; border-radius: 12px; max-height: 480px; overflow: auto; font-size: 12px; }
   .empty { padding: 32px; background: #fff; border: 1px solid var(--line); border-radius: 12px; color: #374151; }
+  .hist tbody tr { cursor: pointer; }
+  .hist tbody tr:hover { background: #f9fafb; }
+  .hist a { color: #1d4ed8; font-weight: 600; text-decoration: none; }
+  .notice { font-size: 13px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 12px; margin: 12px 0 8px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -62,8 +66,9 @@
     <div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg></div>
     <div><b>Portal de Automação</b><small>Ansible Automation Platform / AWX</small></div>
   </div>
-  <nav><button class="secondary" id="nav-catalog" type="button">Catálogo</button></nav>
+  <nav class="row"><button class="secondary" id="nav-catalog" type="button">Catálogo</button><button class="secondary" id="nav-history" type="button">Histórico</button></nav>
 </header>
+
 
 <main>
   <!-- Catálogo -->
@@ -72,6 +77,14 @@
     <p class="lead">Escolha o que executar. Só aparecem os templates publicados no portal.</p>
     <div id="catalog-msg" class="empty" hidden></div>
     <div class="grid" id="catalog"></div>
+  </section>
+
+  <!-- Histórico -->
+  <section id="v-history" hidden>
+    <h1>Histórico</h1>
+    <p class="lead">Últimas execuções feitas pelo portal. Clique numa linha para ver o resultado.</p>
+    <div id="history-msg" class="empty" hidden></div>
+    <div class="tablebox" id="history-box" hidden></div>
   </section>
 
   <!-- Formulário -->
@@ -91,7 +104,7 @@
 
   <!-- Execução -->
   <section id="v-run" hidden>
-    <button class="link" type="button" id="btn-again">← Nova execução</button>
+    <button class="link" type="button" data-go="history">← Histórico</button>
     <div class="row" style="justify-content:space-between;margin-top:12px">
       <h1 id="run-title" style="margin:0"></h1>
       <span id="run-badge" class="badge b-run">Em execução</span>
@@ -99,13 +112,17 @@
     <div class="info" id="run-info"></div>
     <div id="run-wait" class="empty">Aguardando o AWX. O status atualiza sozinho a cada 3 segundos.</div>
     <div id="run-result" hidden>
-      <h2>Resultado por servidor</h2>
-      <div class="tablebox" id="result-table"></div>
+      <div id="result-section">
+        <h2>Resultado por servidor</h2>
+        <div class="tablebox" id="result-table"></div>
+      </div>
       <p class="meta" id="unreachable"></p>
       <div class="row">
-        <button class="primary" type="button" id="btn-again2">Executar novamente</button>
-        <button class="secondary" type="button" id="btn-stdout">Ver saída completa do job</button>
+        <button class="primary" type="button" id="btn-again">Executar novamente</button>
+        <button class="secondary" type="button" id="btn-stdout">Ver saída do job</button>
+        <a class="secondary" id="stdout-download" href="#" style="display:inline-flex;align-items:center;min-height:44px;padding:0 18px;border-radius:8px;text-decoration:none;color:var(--ink);font-size:14px;font-weight:500">Baixar saída completa</a>
       </div>
+      <div class="notice" id="stdout-notice" hidden></div>
       <pre class="stdout mono" id="stdout" hidden></pre>
     </div>
   </section>
@@ -114,13 +131,19 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-let current = null;   // template aberto
-let lastValues = {};  // valores do último envio, para "executar novamente"
+let current = null;   // template aberto no formulário: {id, name, fields}
+let lastValues = {};  // valores para pré-preencher o formulário
+let job = null;       // último status do job aberto
 let pollTimer = null;
+const VIEWS = ["catalog", "history", "form", "run"];
 
 function show(view) {
-  ["catalog", "form", "run"].forEach((v) => ($("v-" + v).hidden = v !== view));
-  if (view !== "run" && pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+  VIEWS.forEach((v) => ($("v-" + v).hidden = v !== view));
+  if (view !== "run") {
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+    if (location.hash) history.replaceState(null, "", location.pathname);
+  }
+  window.scrollTo(0, 0);
 }
 
 async function api(path, opts) {
@@ -139,6 +162,15 @@ function errText(e) {
   }
   return JSON.stringify(e);
 }
+
+const fmtDate = (iso) => iso ? new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "medium" }) : "—";
+const fmtElapsed = (s) => (s == null || s === 0) ? "—" : s < 60 ? `${Math.round(s)} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`;
+
+const STATUS = {
+  running: ["b-run", "Em execução"], pending: ["b-run", "Na fila"], waiting: ["b-run", "Na fila"], new: ["b-run", "Na fila"],
+  successful: ["b-ok", "Concluído com sucesso"], failed: ["b-fail", "Concluído com falha"],
+  error: ["b-fail", "Erro no AWX"], canceled: ["b-fail", "Cancelado"],
+};
 
 // ---------------- catálogo
 async function loadCatalog() {
@@ -166,16 +198,47 @@ async function loadCatalog() {
   }
 }
 
+// ---------------- histórico
+async function loadHistory() {
+  show("history");
+  $("history-box").hidden = true;
+  $("history-msg").hidden = false;
+  $("history-msg").textContent = "Carregando…";
+  try {
+    const jobs = await api("/api/jobs");
+    if (!jobs.length) { $("history-msg").textContent = "Nenhuma execução feita pelo portal ainda."; return; }
+    $("history-msg").hidden = true;
+    $("history-box").hidden = false;
+    $("history-box").innerHTML = `<table class="hist">
+      <thead><tr><th>Execução</th><th>Automação</th><th>Servidores</th><th>Status</th><th>Início</th><th>Duração</th></tr></thead>
+      <tbody>${jobs.map((j) => {
+        const [cls, txt] = STATUS[j.status] || ["b-run", j.status];
+        const pill = cls === "b-ok" ? "p-ok" : cls === "b-fail" ? "p-fail" : "";
+        return `<tr data-job="${j.id}">
+          <td><a href="#job-${j.id}" data-job="${j.id}">#${j.id}</a></td>
+          <td>${esc(j.template_name)}</td>
+          <td>${esc(j.limit) || "—"}</td>
+          <td><span class="pill ${pill}" style="${pill ? "" : "background:#fffbeb;color:#92400e"}">${txt}</span></td>
+          <td>${fmtDate(j.started)}</td>
+          <td>${fmtElapsed(j.elapsed)}</td></tr>`;
+      }).join("")}</tbody></table>`;
+  } catch (e) {
+    $("history-msg").textContent = "Erro ao carregar o histórico: " + errText(e);
+  }
+}
+
 // ---------------- formulário
 function fieldHtml(f) {
   const id = "f-" + f.variable;
   const req = f.required ? " required" : "";
-  const val = esc(lastValues[f.variable] ?? f.default ?? "");
+  const prev = lastValues[f.variable];
+  const val = esc(f.type === "password" ? "" : (prev ?? f.default ?? ""));
   let input;
   if (f.type === "multiplechoice") {
-    input = `<select id="${id}" name="${esc(f.variable)}"${req}><option value=""></option>${f.choices.map((c) => `<option${String(c) === String(lastValues[f.variable] ?? f.default) ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>`;
+    input = `<select id="${id}" name="${esc(f.variable)}"${req}><option value=""></option>${f.choices.map((c) => `<option${String(c) === String(prev ?? f.default) ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>`;
   } else if (f.type === "multiselect") {
-    input = `<select id="${id}" name="${esc(f.variable)}" multiple${req}>${f.choices.map((c) => `<option>${esc(c)}</option>`).join("")}</select>`;
+    const sel = Array.isArray(prev) ? prev.map(String) : [];
+    input = `<select id="${id}" name="${esc(f.variable)}" multiple${req}>${f.choices.map((c) => `<option${sel.includes(String(c)) ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>`;
   } else if (f.type === "textarea") {
     input = `<textarea id="${id}" name="${esc(f.variable)}" rows="4"${req}>${val}</textarea>`;
   } else {
@@ -190,9 +253,15 @@ function fieldHtml(f) {
   </div>`;
 }
 
+async function loadTemplate(tid) {
+  if (current && current.id === Number(tid)) return current;
+  current = await api(`/api/templates/${tid}/form`);
+  return current;
+}
+
 async function openForm(tid) {
   try {
-    current = await api(`/api/templates/${tid}/form`);
+    await loadTemplate(tid);
   } catch (e) {
     alert("Erro ao abrir o template: " + errText(e));
     return;
@@ -214,7 +283,7 @@ $("form").addEventListener("submit", async (ev) => {
     if (f.required && (v === "" || (Array.isArray(v) && !v.length))) missing.push(f.label);
     if (f.type === "integer" && v !== "") v = parseInt(v, 10);
     if (f.type === "float" && v !== "") v = parseFloat(v);
-    lastValues[f.variable] = v;
+    if (f.type !== "password") lastValues[f.variable] = v;
     if (f.kind === "limit") payload.limit = v;
     else if (v !== "") payload.extra_vars[f.variable] = v;
   }
@@ -225,10 +294,10 @@ $("form").addEventListener("submit", async (ev) => {
   }
   $("btn-run").disabled = true;
   try {
-    const { job } = await api(`/api/templates/${current.id}/launch`, {
+    const r = await api(`/api/templates/${current.id}/launch`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
     });
-    startRun(job, payload);
+    openJob(r.job);
   } catch (e) {
     $("form-error").textContent = "O AWX recusou a execução:\n" + errText(e);
     $("form-error").hidden = false;
@@ -237,42 +306,54 @@ $("form").addEventListener("submit", async (ev) => {
   }
 });
 
-// ---------------- execução
-function startRun(job, payload) {
-  $("run-title").textContent = `Execução #${job}`;
-  setBadge("running");
-  const params = [["Automação", current.name]];
-  if (payload.limit) params.push(["Servidores", payload.limit]);
-  for (const [k, v] of Object.entries(payload.extra_vars)) {
-    const f = current.fields.find((x) => x.variable === k);
-    params.push([f ? f.label : k, f && f.type === "password" ? "••••••" : (Array.isArray(v) ? v.join(", ") : v)]);
-  }
-  $("run-info").innerHTML = params.map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("");
+// ---------------- execução (nova ou aberta pelo histórico)
+function openJob(id) {
+  job = null;
+  $("run-title").textContent = `Execução #${id}`;
+  setBadge("pending");
+  $("run-info").innerHTML = "";
   $("run-wait").hidden = false;
+  $("run-wait").textContent = "Aguardando o AWX. O status atualiza sozinho a cada 3 segundos.";
   $("run-result").hidden = true;
   $("stdout").hidden = true;
-  $("stdout").dataset.job = job;
+  $("stdout-notice").hidden = true;
+  $("stdout-download").href = `/api/jobs/${id}/stdout/download`;
   show("run");
-  poll(job);
+  history.replaceState(null, "", `#job-${id}`);
+  poll(id);
 }
 
 function setBadge(status) {
-  const b = $("run-badge");
-  const map = {
-    running: ["b-run", "Em execução"], pending: ["b-run", "Na fila"], waiting: ["b-run", "Na fila"], new: ["b-run", "Na fila"],
-    successful: ["b-ok", "Concluído com sucesso"], failed: ["b-fail", "Concluído com falha"],
-    error: ["b-fail", "Erro no AWX"], canceled: ["b-fail", "Cancelado"],
-  };
-  const [cls, txt] = map[status] || ["b-run", status];
-  b.className = "badge " + cls;
-  b.textContent = txt;
+  const [cls, txt] = STATUS[status] || ["b-run", status];
+  $("run-badge").className = "badge " + cls;
+  $("run-badge").textContent = txt;
 }
 
-async function poll(job) {
+function renderInfo(s) {
+  const tpl = current && current.id === s.template_id ? current : null;
+  const label = (k) => { const f = tpl && tpl.fields.find((x) => x.variable === k); return f ? f.label : k; };
+  const rows = [["Automação", s.template_name]];
+  if (s.limit) rows.push(["Servidores", s.limit]);
+  for (const [k, v] of Object.entries(s.extra_vars || {})) {
+    if (tpl && !tpl.fields.some((x) => x.variable === k)) continue;  // só mostra o que veio do formulário
+    rows.push([label(k), String(v).includes("$encrypted$") ? "••••••" : (Array.isArray(v) ? v.join(", ") : v)]);
+  }
+  rows.push(["Início", fmtDate(s.started)]);
+  if (s.finished) rows.push(["Duração", fmtElapsed(s.elapsed)]);
+  $("run-info").innerHTML = rows.map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("");
+}
+
+async function poll(id) {
   try {
-    const s = await api(`/api/jobs/${job}`);
+    const s = await api(`/api/jobs/${id}`);
+    if ($("v-run").hidden || !$("run-title").textContent.endsWith("#" + id)) return; // usuário saiu da tela
+    job = s;
+    if (s.template_id && (!current || current.id !== s.template_id)) {
+      loadTemplate(s.template_id).then(() => renderInfo(s)).catch(() => {});
+    }
+    renderInfo(s);
     setBadge(s.status);
-    if (!s.finished) { pollTimer = setTimeout(() => poll(job), 3000); return; }
+    if (!s.finished) { pollTimer = setTimeout(() => poll(id), 3000); return; }
     renderResult(s);
   } catch (e) {
     $("run-wait").textContent = "Erro ao consultar o job: " + errText(e);
@@ -282,8 +363,10 @@ async function poll(job) {
 function renderResult(s) {
   $("run-wait").hidden = true;
   $("run-result").hidden = false;
+  $("btn-again").hidden = !s.template_id;
   const res = s.results;
   if (res && Object.keys(res).length) {
+    $("result-section").hidden = false;
     const hasUpd = Object.values(res).some((r) => r.updates_available !== null && r.updates_available !== undefined);
     $("result-table").innerHTML = `<table>
       <thead><tr><th>Servidor</th><th>Resultado</th><th>Código</th>${hasUpd ? "<th>Atualizações</th>" : ""}<th>Saída</th></tr></thead>
@@ -299,7 +382,8 @@ function renderResult(s) {
           <td><pre class="mono">${esc(out) || "(sem saída)"}</pre></td></tr>`;
       }).join("")}</tbody></table>`;
   } else {
-    $("result-table").innerHTML = `<p style="padding:16px;margin:0">Este job não devolveu resultado estruturado (artifacts.results). Veja a saída completa abaixo.</p>`;
+    // template sem artifacts.results: a saída do job é o resultado
+    $("result-section").hidden = true;
     showStdout();
   }
   $("unreachable").textContent = s.unreachable.length ? "Servidores inalcançáveis: " + s.unreachable.join(", ") : "";
@@ -308,27 +392,55 @@ function renderResult(s) {
 async function showStdout() {
   const pre = $("stdout");
   pre.hidden = false;
-  pre.textContent = "Carregando…";
+  pre.textContent = "Carregando a saída do job…";
+  $("stdout-notice").hidden = true;
   try {
-    pre.textContent = (await api(`/api/jobs/${pre.dataset.job}/stdout`)).stdout;
+    const r = await api(`/api/jobs/${job.id}/stdout`);
+    pre.textContent = r.stdout || "(sem saída)";
+    if (r.truncated) {
+      const mb = (r.size / 1048576).toFixed(1);
+      $("stdout-notice").textContent = `A saída tem ${mb} MB. Mostrando só o final; use "Baixar saída completa" para ver tudo.`;
+      $("stdout-notice").hidden = false;
+    }
+    pre.scrollTop = pre.scrollHeight;
   } catch (e) {
-    pre.textContent = "Erro: " + errText(e);
+    pre.textContent = "Erro ao carregar a saída: " + errText(e);
   }
+}
+
+function rerun() {
+  if (!job || !job.template_id) return;
+  lastValues = {};
+  for (const [k, v] of Object.entries(job.extra_vars || {})) {
+    if (!String(v).includes("$encrypted$")) lastValues[k] = v;
+  }
+  if (job.limit) lastValues.limit = job.limit;
+  openForm(job.template_id);
 }
 
 // ---------------- navegação
 document.addEventListener("click", (ev) => {
   const open = ev.target.closest("[data-open]");
-  if (open) { lastValues = {}; openForm(open.dataset.open); }
-  if (ev.target.closest('[data-go="catalog"]')) loadCatalog();
+  if (open) { lastValues = {}; openForm(open.dataset.open); return; }
+  const row = ev.target.closest("[data-job]");
+  if (row) { ev.preventDefault(); openJob(row.dataset.job); return; }
+  const go = ev.target.closest("[data-go]");
+  if (go) go.dataset.go === "history" ? loadHistory() : loadCatalog();
 });
 $("form").addEventListener("input", () => ($("form-error").hidden = true));
 $("nav-catalog").addEventListener("click", loadCatalog);
-$("btn-again").addEventListener("click", () => openForm(current.id));
-$("btn-again2").addEventListener("click", () => openForm(current.id));
+$("nav-history").addEventListener("click", loadHistory);
+$("btn-again").addEventListener("click", rerun);
 $("btn-stdout").addEventListener("click", showStdout);
 
-loadCatalog();
+// abre direto uma execução pelo link (#job-123); senão, o catálogo
+function route() {
+  const m = location.hash.match(/^#job-(\d+)$/);
+  if (m) { if ($("v-run").hidden || !$("run-title").textContent.endsWith("#" + m[1])) openJob(m[1]); }
+  else if (!location.hash) loadCatalog();
+}
+window.addEventListener("hashchange", route);
+route();
 </script>
 </body>
 </html>
