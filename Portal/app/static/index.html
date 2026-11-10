@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portal de Automação</title>
+<style>
+  :root { --accent: #1d4ed8; --ink: #111827; --muted: #4b5563; --line: #e5e7eb; --bg: #f5f6f8; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .mono { font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
+  header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 14px 32px; background: #fff; border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo { width: 36px; height: 36px; border-radius: 8px; background: var(--accent); display: flex; align-items: center; justify-content: center; }
+  .brand b { display: block; font-size: 16px; }
+  .brand small { color: var(--muted); font-size: 12px; }
+  main { max-width: 1040px; margin: 0 auto; padding: 32px 24px 48px; }
+  h1 { margin: 0 0 6px; font-size: 28px; }
+  h2 { margin: 0; font-size: 18px; }
+  p.lead { margin: 0 0 24px; color: var(--muted); font-size: 15px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  .card { display: flex; flex-direction: column; gap: 12px; padding: 20px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
+  .card p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+  .tag { display: inline-block; padding: 3px 8px; border-radius: 6px; background: #eff6ff; color: #1e40af; font-size: 12px; font-weight: 600; margin-right: 6px; }
+  .meta { font-size: 12px; color: var(--muted); }
+  button { min-height: 44px; padding: 0 18px; border-radius: 8px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .primary { border: 0; background: var(--accent); color: #fff; }
+  .primary:disabled { opacity: .6; cursor: progress; }
+  .secondary { border: 1px solid #d1d5db; background: #fff; color: var(--ink); font-weight: 500; }
+  .link { border: 0; background: none; padding: 0; color: #1d4ed8; font-weight: 500; }
+  .form { display: flex; flex-direction: column; gap: 20px; max-width: 640px; padding: 24px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 14px; font-weight: 600; }
+  .field input, .field select, .field textarea { min-height: 44px; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 8px; font: inherit; font-size: 14px; }
+  .field .help { font-size: 13px; color: var(--muted); }
+  .alert { padding: 12px 14px; border-radius: 8px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; font-size: 14px; white-space: pre-wrap; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .badge { display: inline-flex; padding: 6px 12px; border-radius: 999px; font-size: 14px; font-weight: 600; border: 1px solid; }
+  .b-run { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+  .b-ok { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+  .b-fail { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+  .info { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin: 20px 0; }
+  .info div { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; background: #fff; }
+  .info span:first-child { font-size: 12px; color: var(--muted); }
+  .info span:last-child { font-size: 14px; font-weight: 600; word-break: break-word; }
+  .tablebox { overflow-x: auto; background: #fff; border: 1px solid var(--line); border-radius: 12px; margin: 12px 0; }
+  table { width: 100%; min-width: 640px; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; padding: 12px 16px; font-size: 12px; color: #374151; background: #f9fafb; border-bottom: 1px solid var(--line); }
+  td { padding: 14px 16px; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
+  pre { margin: 0; white-space: pre-wrap; font-size: 12px; color: #374151; }
+  .pill { padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+  .p-ok { background: #ecfdf5; color: #065f46; }
+  .p-fail { background: #fef2f2; color: #991b1b; }
+  .stdout { background: #111827; color: #e5e7eb; padding: 16px; border-radius: 12px; max-height: 480px; overflow: auto; font-size: 12px; }
+  .empty { padding: 32px; background: #fff; border: 1px solid var(--line); border-radius: 12px; color: #374151; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg></div>
+    <div><b>Portal de Automação</b><small>Ansible Automation Platform / AWX</small></div>
+  </div>
+  <nav><button class="secondary" id="nav-catalog" type="button">Catálogo</button></nav>
+</header>
+
+<main>
+  <!-- Catálogo -->
+  <section id="v-catalog">
+    <h1>Catálogo de automações</h1>
+    <p class="lead">Escolha o que executar. Só aparecem os templates publicados no portal.</p>
+    <div id="catalog-msg" class="empty" hidden></div>
+    <div class="grid" id="catalog"></div>
+  </section>
+
+  <!-- Formulário -->
+  <section id="v-form" hidden>
+    <button class="link" type="button" data-go="catalog">← Voltar ao catálogo</button>
+    <h1 id="form-title" style="margin-top:12px"></h1>
+    <p class="lead" id="form-desc"></p>
+    <form class="form" id="form" novalidate>
+      <div id="form-fields"></div>
+      <div id="form-error" class="alert" role="alert" hidden></div>
+      <div class="row">
+        <button class="primary" id="btn-run" type="submit">Executar</button>
+        <button class="secondary" type="button" data-go="catalog">Cancelar</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- Execução -->
+  <section id="v-run" hidden>
+    <button class="link" type="button" id="btn-again">← Nova execução</button>
+    <div class="row" style="justify-content:space-between;margin-top:12px">
+      <h1 id="run-title" style="margin:0"></h1>
+      <span id="run-badge" class="badge b-run">Em execução</span>
+    </div>
+    <div class="info" id="run-info"></div>
+    <div id="run-wait" class="empty">Aguardando o AWX. O status atualiza sozinho a cada 3 segundos.</div>
+    <div id="run-result" hidden>
+      <h2>Resultado por servidor</h2>
+      <div class="tablebox" id="result-table"></div>
+      <p class="meta" id="unreachable"></p>
+      <div class="row">
+        <button class="primary" type="button" id="btn-again2">Executar novamente</button>
+        <button class="secondary" type="button" id="btn-stdout">Ver saída completa do job</button>
+      </div>
+      <pre class="stdout mono" id="stdout" hidden></pre>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let current = null;   // template aberto
+let lastValues = {};  // valores do último envio, para "executar novamente"
+let pollTimer = null;
+
+function show(view) {
+  ["catalog", "form", "run"].forEach((v) => ($("v-" + v).hidden = v !== view));
+  if (view !== "run" && pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw body.detail ?? body;
+  return body;
+}
+
+function errText(e) {
+  if (typeof e === "string") return e;
+  if (e && e.awx_error) {
+    const a = e.awx_error;
+    if (typeof a === "string") return a;
+    return Object.entries(a).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : JSON.stringify(v)}`).join("\n");
+  }
+  return JSON.stringify(e);
+}
+
+// ---------------- catálogo
+async function loadCatalog() {
+  show("catalog");
+  $("catalog").innerHTML = "";
+  $("catalog-msg").hidden = false;
+  $("catalog-msg").textContent = "Carregando…";
+  try {
+    const items = await api("/api/templates");
+    if (!items.length) {
+      $("catalog-msg").textContent = 'Nenhum template publicado. No AWX, adicione a label "portal" ao job template.';
+      return;
+    }
+    $("catalog-msg").hidden = true;
+    $("catalog").innerHTML = items.map((t) => `
+      <div class="card">
+        <div>${t.labels.map((l) => `<span class="tag">${esc(l)}</span>`).join("")}</div>
+        <h2>${esc(t.name)}</h2>
+        <p>${esc(t.description) || "Sem descrição."}</p>
+        <span class="meta">Job template ${t.id}</span>
+        <button class="primary" type="button" style="margin-top:auto" data-open="${t.id}">Usar automação</button>
+      </div>`).join("");
+  } catch (e) {
+    $("catalog-msg").textContent = "Erro ao carregar o catálogo: " + errText(e);
+  }
+}
+
+// ---------------- formulário
+function fieldHtml(f) {
+  const id = "f-" + f.variable;
+  const req = f.required ? " required" : "";
+  const val = esc(lastValues[f.variable] ?? f.default ?? "");
+  let input;
+  if (f.type === "multiplechoice") {
+    input = `<select id="${id}" name="${esc(f.variable)}"${req}><option value=""></option>${f.choices.map((c) => `<option${String(c) === String(lastValues[f.variable] ?? f.default) ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>`;
+  } else if (f.type === "multiselect") {
+    input = `<select id="${id}" name="${esc(f.variable)}" multiple${req}>${f.choices.map((c) => `<option>${esc(c)}</option>`).join("")}</select>`;
+  } else if (f.type === "textarea") {
+    input = `<textarea id="${id}" name="${esc(f.variable)}" rows="4"${req}>${val}</textarea>`;
+  } else {
+    const t = f.type === "password" ? "password" : (f.type === "integer" || f.type === "float") ? "number" : "text";
+    const mono = f.kind === "survey" && f.type === "text" ? ' class="mono"' : "";
+    input = `<input id="${id}" name="${esc(f.variable)}" type="${t}" value="${val}"${mono}${req}>`;
+  }
+  return `<div class="field" style="margin-bottom:20px">
+    <label for="${id}">${esc(f.label)}${f.required ? "" : " (opcional)"}</label>
+    ${input}
+    ${f.help ? `<span class="help">${esc(f.help)}</span>` : ""}
+  </div>`;
+}
+
+async function openForm(tid) {
+  try {
+    current = await api(`/api/templates/${tid}/form`);
+  } catch (e) {
+    alert("Erro ao abrir o template: " + errText(e));
+    return;
+  }
+  $("form-title").textContent = current.name;
+  $("form-desc").textContent = current.description || "";
+  $("form-fields").innerHTML = current.fields.map(fieldHtml).join("") || '<p class="help">Este template não pede nenhuma informação.</p>';
+  $("form-error").hidden = true;
+  show("form");
+}
+
+$("form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const payload = { limit: null, extra_vars: {} };
+  const missing = [];
+  for (const f of current.fields) {
+    const el = $("f-" + f.variable);
+    let v = f.type === "multiselect" ? [...el.selectedOptions].map((o) => o.value) : el.value.trim();
+    if (f.required && (v === "" || (Array.isArray(v) && !v.length))) missing.push(f.label);
+    if (f.type === "integer" && v !== "") v = parseInt(v, 10);
+    if (f.type === "float" && v !== "") v = parseFloat(v);
+    lastValues[f.variable] = v;
+    if (f.kind === "limit") payload.limit = v;
+    else if (v !== "") payload.extra_vars[f.variable] = v;
+  }
+  if (missing.length) {
+    $("form-error").textContent = "Preencha: " + missing.join(", ");
+    $("form-error").hidden = false;
+    return;
+  }
+  $("btn-run").disabled = true;
+  try {
+    const { job } = await api(`/api/templates/${current.id}/launch`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    });
+    startRun(job, payload);
+  } catch (e) {
+    $("form-error").textContent = "O AWX recusou a execução:\n" + errText(e);
+    $("form-error").hidden = false;
+  } finally {
+    $("btn-run").disabled = false;
+  }
+});
+
+// ---------------- execução
+function startRun(job, payload) {
+  $("run-title").textContent = `Execução #${job}`;
+  setBadge("running");
+  const params = [["Automação", current.name]];
+  if (payload.limit) params.push(["Servidores", payload.limit]);
+  for (const [k, v] of Object.entries(payload.extra_vars)) {
+    const f = current.fields.find((x) => x.variable === k);
+    params.push([f ? f.label : k, f && f.type === "password" ? "••••••" : (Array.isArray(v) ? v.join(", ") : v)]);
+  }
+  $("run-info").innerHTML = params.map(([k, v]) => `<div><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("");
+  $("run-wait").hidden = false;
+  $("run-result").hidden = true;
+  $("stdout").hidden = true;
+  $("stdout").dataset.job = job;
+  show("run");
+  poll(job);
+}
+
+function setBadge(status) {
+  const b = $("run-badge");
+  const map = {
+    running: ["b-run", "Em execução"], pending: ["b-run", "Na fila"], waiting: ["b-run", "Na fila"], new: ["b-run", "Na fila"],
+    successful: ["b-ok", "Concluído com sucesso"], failed: ["b-fail", "Concluído com falha"],
+    error: ["b-fail", "Erro no AWX"], canceled: ["b-fail", "Cancelado"],
+  };
+  const [cls, txt] = map[status] || ["b-run", status];
+  b.className = "badge " + cls;
+  b.textContent = txt;
+}
+
+async function poll(job) {
+  try {
+    const s = await api(`/api/jobs/${job}`);
+    setBadge(s.status);
+    if (!s.finished) { pollTimer = setTimeout(() => poll(job), 3000); return; }
+    renderResult(s);
+  } catch (e) {
+    $("run-wait").textContent = "Erro ao consultar o job: " + errText(e);
+  }
+}
+
+function renderResult(s) {
+  $("run-wait").hidden = true;
+  $("run-result").hidden = false;
+  const res = s.results;
+  if (res && Object.keys(res).length) {
+    const hasUpd = Object.values(res).some((r) => r.updates_available !== null && r.updates_available !== undefined);
+    $("result-table").innerHTML = `<table>
+      <thead><tr><th>Servidor</th><th>Resultado</th><th>Código</th>${hasUpd ? "<th>Atualizações</th>" : ""}<th>Saída</th></tr></thead>
+      <tbody>${Object.entries(res).map(([host, r]) => {
+        const ok = r.ok === true || r.ok === "True" || r.ok === "true";
+        const out = ok ? r.stdout : (r.stderr || r.stdout);
+        const upd = r.updates_available === true ? "Sim" : r.updates_available === false ? "Não" : "—";
+        return `<tr>
+          <td><b>${esc(host)}</b></td>
+          <td><span class="pill ${ok ? "p-ok" : "p-fail"}">${ok ? "OK" : "Falhou"}</span></td>
+          <td class="mono">${esc(r.rc)}</td>
+          ${hasUpd ? `<td>${upd}</td>` : ""}
+          <td><pre class="mono">${esc(out) || "(sem saída)"}</pre></td></tr>`;
+      }).join("")}</tbody></table>`;
+  } else {
+    $("result-table").innerHTML = `<p style="padding:16px;margin:0">Este job não devolveu resultado estruturado (artifacts.results). Veja a saída completa abaixo.</p>`;
+    showStdout();
+  }
+  $("unreachable").textContent = s.unreachable.length ? "Servidores inalcançáveis: " + s.unreachable.join(", ") : "";
+}
+
+async function showStdout() {
+  const pre = $("stdout");
+  pre.hidden = false;
+  pre.textContent = "Carregando…";
+  try {
+    pre.textContent = (await api(`/api/jobs/${pre.dataset.job}/stdout`)).stdout;
+  } catch (e) {
+    pre.textContent = "Erro: " + errText(e);
+  }
+}
+
+// ---------------- navegação
+document.addEventListener("click", (ev) => {
+  const open = ev.target.closest("[data-open]");
+  if (open) { lastValues = {}; openForm(open.dataset.open); }
+  if (ev.target.closest('[data-go="catalog"]')) loadCatalog();
+});
+$("form").addEventListener("input", () => ($("form-error").hidden = true));
+$("nav-catalog").addEventListener("click", loadCatalog);
+$("btn-again").addEventListener("click", () => openForm(current.id));
+$("btn-again2").addEventListener("click", () => openForm(current.id));
+$("btn-stdout").addEventListener("click", showStdout);
+
+loadCatalog();
+</script>
+</body>
+</html>

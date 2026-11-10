@@ -1,0 +1,37 @@
+name: Build e push da imagem do Portal de Automação
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Portal/**"
+      - ".github/workflows/build_portal.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login no Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build e push
+        uses: docker/build-push-action@v6
+        with:
+          context: Portal
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/portal-automacao:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/portal-automacao:${{ github.sha }}
+
+      - name: Resumo
+        run: |
+          echo "✅ Imagem publicada: ${{ secrets.DOCKERHUB_USERNAME }}/portal-automacao:latest"
+          echo "   Tag do commit:     ${{ github.sha }}"

@@ -63,7 +63,8 @@ GitHub (este repo) ──push──► GitHub Actions ──API──► AWX (no
   - `zabbix/` — instalação do Zabbix server e agents (segredos via Ansible Vault)
   - `remote_command/` — `run_command.yml`: executa comandos (`dnf`/`yum` + lista `allowed_commands` do template) nos hosts do `limit`, chamado via API do AWX
   - `facts.yml` — coleta de facts ad-hoc
-- `.github/workflows/` — sync automático do projeto no AWX a cada push
+- `Portal/` — portal web (FastAPI) que executa job templates do AWX pela API; imagem no Docker Hub, deploy no cluster via Ingress
+- `.github/workflows/` — sync automático do projeto no AWX a cada push e build da imagem do portal
 - `Docker/` — anotações de estudo de Docker
 - `Anki/` — `anki_gen.py`, gerador de flashcards (PDF/Markdown → Anki) via API da Anthropic
 - `wiki/` — espelho da wiki do GitHub

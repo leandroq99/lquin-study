@@ -43,6 +43,7 @@ These playbooks are designed to be run **by AWX** (project `AWX-PROJECT`, git-sy
 
 ### Non-Ansible content
 
+- `Portal/` — self-service web portal (FastAPI backend + static HTML) that lists AWX job templates labelled `portal`, builds a form from their survey, launches them and shows per-host `artifacts.results`. The AWX token lives only in the backend (k8s Secret `portal-awx`). Image is built and pushed to Docker Hub by `.github/workflows/build_portal.yml` on pushes touching `Portal/`; deployed with `Portal/k8s/portal.yaml` (Ingress `portal.lab.local`). No login yet — lab use only.
 - `Docker/Docker_notes.txt` — plain-text study notes only, no code/scripts.
 - `Anki/` — `anki_gen.py` (PDF/Markdown → Anki flashcards via the Anthropic API) plus its own README and example data files.
 - `wiki/` — a mirror of the GitHub repo wiki; treat it as secondary/possibly stale documentation, not a source of truth for the current file layout (e.g. it still describes the AWS playbooks as living directly under `Ansible/`, not `Ansible/AWS/`).

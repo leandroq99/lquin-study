@@ -1,0 +1,86 @@
+# Portal de Automação no cluster do lab.
+#
+# Antes de aplicar:
+#   1. Troque DOCKERHUB_USER pelo seu usuário do Docker Hub (linha "image").
+#   2. Confira o Service do AWX:  kubectl get svc -n awx   e ajuste AWX_URL.
+#   3. Crie o namespace e o Secret com o token do AWX (fora do Git):
+#        kubectl create namespace portal
+#        kubectl -n portal create secret generic portal-awx --from-literal=AWX_TOKEN='<token>'
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: portal
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portal
+  namespace: portal
+  labels: { app: portal }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: portal }
+  template:
+    metadata:
+      labels: { app: portal }
+    spec:
+      containers:
+        - name: portal
+          image: DOCKERHUB_USER/portal-automacao:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - { name: AWX_URL, value: "http://awx-service.awx.svc.cluster.local" }
+            - { name: AWX_API_PREFIX, value: "/api/v2" }
+            - { name: AWX_VERIFY_SSL, value: "false" }
+            - { name: PORTAL_LABEL, value: "portal" }
+            - name: AWX_TOKEN
+              valueFrom:
+                secretKeyRef: { name: portal-awx, key: AWX_TOKEN }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 250m, memory: 256Mi }
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: portal
+  namespace: portal
+spec:
+  selector: { app: portal }
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: portal
+  namespace: portal
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: portal.lab.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: portal
+                port:
+                  number: 80
