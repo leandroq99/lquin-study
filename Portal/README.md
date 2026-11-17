@@ -60,6 +60,30 @@ Automático: todo push na `main` que altera `Portal/` dispara `.github/workflows
 `leandrocfg/portal-automacao:latest` e `leandrocfg/portal-automacao:<sha do commit>` no Docker Hub.
 Secrets do repositório: `DOCKERHUB_USERNAME` e `DOCKERHUB_TOKEN`.
 
+## Deploy com Docker (sem Kubernetes)
+
+Toda a configuração fica no arquivo `Portal/docker/.env` (fora do Git):
+
+```bash
+cd Portal/docker
+cp .env.example .env        # preencha AWX_URL, AWX_TOKEN, LDAP_* e PORTAL_SESSION_SECRET
+docker compose up -d
+docker compose logs -f portal
+```
+
+Acesse `http://<servidor>:8080`. Para atualizar depois de um push: `docker compose pull && docker compose up -d`.
+
+Sem Compose, o equivalente é:
+
+```bash
+docker run -d --name portal-automacao --restart unless-stopped \
+  --env-file .env -p 8080:8080 --read-only --tmpfs /tmp \
+  leandrocfg/portal-automacao:latest
+```
+
+Em produção, coloque o portal atrás de um proxy reverso com HTTPS (nginx, Traefik ou o balanceador
+da empresa), publique a porta só para ele (`127.0.0.1:8080:8080`) e use `PORTAL_COOKIE_SECURE=true`.
+
 ## Deploy no cluster
 
 ```bash

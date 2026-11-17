@@ -1,0 +1,31 @@
+# Portal de Automação com Docker (sem Kubernetes).
+#
+# Uso:
+#   cp .env.example .env      # preencha URL do AAP, token, LDAP etc.
+#   docker compose up -d
+#   docker compose logs -f portal
+#
+# Atualizar para a imagem nova:
+#   docker compose pull && docker compose up -d
+
+services:
+  portal:
+    image: leandrocfg/portal-automacao:latest
+    container_name: portal-automacao
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      # Em produção, publique só para o proxy reverso (HTTPS) e não direto para a rede:
+      # "127.0.0.1:8080:8080"
+      - "8080:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
