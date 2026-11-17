@@ -43,6 +43,14 @@ No AWX, no job template:
 3. **Limit** com *Prompt on launch*, se o operador escolhe os servidores.
 4. **Access**: papel **Execute** para o usuário de serviço do portal (`svc-portal`).
 
+O portal descobre sozinho o que cada template pede, com `GET /job_templates/<id>/launch/`:
+
+- o formulário mostra os campos do survey (obrigatórios = `variables_needed_to_start`) e o campo de servidores só se `ask_limit_on_launch` estiver ligado;
+- o card do catálogo mostra **Pronto para executar** (`can_start_without_user_input`) ou **Pede informações**;
+- o portal não escolhe inventário nem credencial: quem aponta grupo/host é o survey (ou o limit).
+  Se o AWX exigir inventário, credencial ou senha de credencial no launch, o card mostra
+  **Configuração pendente** e a execução fica bloqueada até o template ser ajustado.
+
 Se o playbook publicar `artifacts.results` (via `set_stats`, como o `Ansible/remote_command/run_command.yml`),
 o portal mostra uma tabela por host; senão, mostra a saída do job (só o final, com botão de download).
 

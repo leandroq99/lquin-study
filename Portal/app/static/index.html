@@ -109,6 +109,7 @@
     <form class="form" id="form" novalidate>
       <div class="notice" id="form-admin-note" hidden style="margin:0 0 20px">Este template não registra quem executou. No survey do AWX, adicione a pergunta <b class="mono">portal_user</b> (texto, opcional); o portal preenche com o usuário logado e esconde o campo do formulário.</div>
       <div id="form-fields"></div>
+      <div id="form-blocked" class="alert" role="alert" hidden></div>
       <div id="form-error" class="alert" role="alert" hidden></div>
       <div class="row">
         <button class="primary" id="btn-run" type="submit">Executar</button>
@@ -249,7 +250,12 @@ async function loadCatalog() {
     $("catalog-msg").hidden = true;
     $("catalog").innerHTML = items.map((t) => `
       <div class="card">
-        <div>${t.labels.map((l) => `<span class="tag">${esc(l)}</span>`).join("")}</div>
+        <div class="row" style="justify-content:space-between">
+          <div>${t.labels.map((l) => `<span class="tag">${esc(l)}</span>`).join("")}</div>
+          ${t.blocked ? '<span class="pill p-fail">Configuração pendente</span>'
+            : t.ready ? '<span class="pill p-ok">Pronto para executar</span>'
+            : '<span class="pill" style="background:#eff6ff;color:#1e40af">Pede informações</span>'}
+        </div>
         <h2>${esc(t.name)}</h2>
         <p>${esc(t.description) || "Sem descrição."}</p>
         <span class="meta">Job template ${t.id}</span>
@@ -336,6 +342,9 @@ async function openForm(tid) {
   $("form-desc").textContent = current.description || "";
   $("form-fields").innerHTML = current.fields.map(fieldHtml).join("") || '<p class="help">Este template não pede nenhuma informação.</p>';
   $("form-error").hidden = true;
+  $("form-blocked").textContent = current.blocked || "";
+  $("form-blocked").hidden = !current.blocked;
+  $("btn-run").disabled = !!current.blocked;
   $("form-admin-note").hidden = !(me && me.admin && !current.records_user);
   show("form");
 }
@@ -369,7 +378,7 @@ $("form").addEventListener("submit", async (ev) => {
     $("form-error").textContent = "O AWX recusou a execução:\n" + errText(e);
     $("form-error").hidden = false;
   } finally {
-    $("btn-run").disabled = false;
+    $("btn-run").disabled = !!current.blocked;
   }
 });
 

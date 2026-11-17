@@ -144,6 +144,39 @@ def template(tid: int) -> dict:
     return t
 
 
+_launch_cache: dict[int, tuple[float, dict]] = {}
+
+
+def launch_info(tid: int) -> dict:
+    """GET /job_templates/<id>/launch/: o que o AWX exige para executar (cache curto)."""
+    hit = _launch_cache.get(tid)
+    if hit and time.time() - hit[0] < 30:
+        return hit[1]
+    info = get(f"/job_templates/{tid}/launch/").json()
+    _launch_cache[tid] = (time.time(), info)
+    return info
+
+
+def readiness(info: dict) -> dict:
+    """Resume o launch info para o portal.
+
+    O portal não escolhe inventário nem credencial: quem aponta grupo/host é o survey
+    (ou o limit). Se o AWX exigir isso no launch, o template não serve para o portal.
+    """
+    blocked = []
+    if info.get("inventory_needed_to_start"):
+        blocked.append("inventário")
+    if info.get("credential_needed_to_start"):
+        blocked.append("credencial")
+    if info.get("passwords_needed_to_start"):
+        blocked.append("senha da credencial")
+    return {
+        "ready": bool(info.get("can_start_without_user_input")) and not blocked,
+        "blocked": ("O AWX pede " + ", ".join(blocked) + " na execução, e o portal não envia isso. "
+                    "Defina no job template.") if blocked else "",
+    }
+
+
 def require_template(tid: int, user: dict) -> dict:
     t = template(tid)
     if not can_use(user, _labels(t)):
@@ -190,28 +223,32 @@ def list_templates(user: dict = Depends(current_user)):
         params["labels__name"] = PORTAL_LABEL
     data = get("/job_templates/", **params).json()
     hidden = {PORTAL_LABEL}
-    return [
-        {
+    out = []
+    for t in data.get("results", []):
+        if not can_use(user, _labels(t)):
+            continue
+        out.append({
             "id": t["id"],
             "name": t["name"],
             "description": t.get("description", ""),
             "labels": [l for l in _labels(t) if l not in hidden and not l.startswith(GROUP_PREFIX)],
-        }
-        for t in data.get("results", [])
-        if can_use(user, _labels(t))
-    ]
+            **readiness(launch_info(t["id"])),
+        })
+    return out
 
 
 def _form(t: dict) -> dict:
+    info = launch_info(t["id"])
+    needed = set(info.get("variables_needed_to_start") or [])
     fields, has_user_var = [], False
-    if t.get("ask_limit_on_launch"):
+    if info.get("ask_limit_on_launch"):
         fields.append({
             "kind": "limit", "variable": "limit", "type": "text", "required": True,
             "label": "Servidores ou grupo",
             "help": "Um host, uma lista separada por vírgula ou um grupo do inventário.",
             "default": "",
         })
-    if t.get("survey_enabled"):
+    if info.get("survey_enabled"):
         spec = get(f"/job_templates/{t['id']}/survey_spec/").json()
         for q in spec.get("spec", []):
             if q["variable"] == USER_VAR:  # preenchido pelo backend, nunca pelo usuário
@@ -224,7 +261,7 @@ def _form(t: dict) -> dict:
                 "kind": "survey",
                 "variable": q["variable"],
                 "type": q.get("type", "text"),
-                "required": bool(q.get("required")),
+                "required": bool(q.get("required")) or q["variable"] in needed,
                 "label": q.get("question_name") or q["variable"],
                 "help": q.get("question_description", ""),
                 "default": "" if q.get("type") == "password" else q.get("default", ""),
@@ -233,7 +270,7 @@ def _form(t: dict) -> dict:
                 "max": q.get("max"),
             })
     return {"id": t["id"], "name": t["name"], "description": t.get("description", ""),
-            "fields": fields, "records_user": has_user_var}
+            "fields": fields, "records_user": has_user_var, **readiness(info)}
 
 
 @app.get("/api/templates/{tid}/form")
@@ -251,6 +288,8 @@ class LaunchRequest(BaseModel):
 @app.post("/api/templates/{tid}/launch")
 def launch(tid: int, req: LaunchRequest, user: dict = Depends(current_user)):
     form = _form(require_template(tid, user))
+    if form["blocked"]:
+        raise HTTPException(400, form["blocked"])
     allowed = {f["variable"] for f in form["fields"] if f["kind"] == "survey"}
     extra = {k: v for k, v in req.extra_vars.items() if k in allowed}
     if form["records_user"]:
